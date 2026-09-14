@@ -160,7 +160,11 @@ matching subset when small, otherwise filtered HNSW with a widened beam).
   binary protocol with prepared statements.
 - pgvector's `vector` type indexes at most 2,000 dimensions, so the 3072-d run uses `halfvec`
   (float16), which is lossy.
-- One machine, one run per configuration. Treat differences under ~10% as noise.
+- One machine, one run per configuration. Treat differences under ~10% as noise. The published
+  run shared the machine with an unrelated CPU-heavy training job, so absolute numbers are
+  conservative; every system ran under the same conditions.
+- Docker Desktop on macOS adds a port-forwarding hop to every request, which dominates the
+  Docker rows at this latency scale; the native NeedleDB server row shows the same code without it.
 
 **Reproduce.**
 
