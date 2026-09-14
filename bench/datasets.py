@@ -83,6 +83,8 @@ def _synthetic(dim: int, rows: int, seed: int = 0) -> np.ndarray:
 def exact_top_k(base: np.ndarray, queries: np.ndarray, k: int) -> np.ndarray:
     import faiss
 
+    if k == 0:                                   # a filter that matched nothing
+        return np.empty((len(queries), 0), dtype=np.int64)
     index = faiss.IndexFlatIP(base.shape[1])
     index.add(base)
     _, ids = index.search(queries, k)

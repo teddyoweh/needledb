@@ -84,7 +84,7 @@ needledb/
     http.py        NeedleDB (remote)
     local.py       NeedleDBLocal (embedded)
   cli.py           `needledb serve`
-ui/                React + Vite + TypeScript dashboard, built into needledb/server/static
+ui/                React + Vite + TypeScript dashboard, built into needledb/server/static, served at /app
 bench/             datasets, system adapters, runner, report, compose file for competitors
 deploy/            docker-compose.yml for running NeedleDB
 Dockerfile         dashboard build stage + server image
@@ -261,10 +261,33 @@ or inconsistent — the namespace is rebuilt from the live rows: slower, same re
 
 ## 6. HTTP API
 
-**Auth:** `Api-Key: <key>` (or `Authorization: Bearer <key>`) is required on every route except
-`/health`, `/ui` and `/docs`. Keys come from `NEEDLEDB_API_KEY`, comma-separated to allow
-several, and are compared in constant time. With no key configured the server refuses to start,
-unless `NEEDLEDB_ALLOW_NO_AUTH=1` or `--no-auth` is set.
+**Auth:** every route except `/health`, the web app's static files and `/auth/login|logout|me` needs
+an `Api-Key` (or `Authorization: Bearer`) header, or a web-app session cookie. See §6.1.
+
+### 6.1 Security model
+
+- **Keys.** `NEEDLEDB_API_KEY` holds bootstrap admin keys. Managed keys (`ndb_…`) are created by
+  admins, shown once, and stored as SHA-256 digests in `data/_system/auth.sqlite`.
+  - Roles: `read` (query, fetch, list, stats), `write` (+ upsert, update, delete), `admin`
+    (+ indexes, keys).
+  - Read and write keys can be limited to named indexes; other indexes answer 404 to them.
+  - A revocation takes effect immediately.
+- **Sessions.** `POST /auth/login` exchanges a key for an HMAC-signed token in an HttpOnly,
+  SameSite=Strict cookie (Secure over HTTPS) that lasts 12 h and names the key id, never the key.
+  - Signing out denylists that token.
+  - Revoking the key invalidates its sessions.
+  - `POST /auth/sessions/revoke-all` rotates the secret (`data/_system/session.key`, mode 600).
+  - Cookie-authenticated writes must be same-origin (the `Origin` or `Sec-Fetch-Site` header is checked).
+- **Lockout.** 10 failed authentications from one client within 5 minutes block it for 5 minutes (429).
+- **Headers and limits.**
+  - CSP on `/app`, `default-src 'none'` on API responses, plus `X-Frame-Options: DENY`,
+    `nosniff`, `no-referrer` and `Cache-Control: no-store`.
+  - HSTS over HTTPS.
+  - Bodies over `NEEDLEDB_MAX_BODY_MB` are refused with 413.
+- **Serving.**
+  - `--no-auth` is refused on non-loopback addresses.
+  - A public plain-HTTP bind warns.
+  - `--tls-cert/--tls-key` serve HTTPS directly; `--trust-proxy` reads `X-Forwarded-*` from a TLS proxy.
 
 **Errors:** `{"error": {"code": "INVALID_ARGUMENT" | "UNAUTHENTICATED" | "NOT_FOUND" |
 "ALREADY_EXISTS" | "METHOD_NOT_ALLOWED" | "INTERNAL", "message": "…"}}`, with the matching HTTP status.

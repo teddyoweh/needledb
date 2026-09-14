@@ -5,10 +5,12 @@ import { defineConfig } from "vite";
 const api = process.env.NEEDLEDB_URL ?? "http://127.0.0.1:8080";
 
 export default defineConfig({
-  base: "/ui/",
+  base: "/app/",
   plugins: [react()],
   build: { outDir: "../needledb/server/static", emptyOutDir: true },
   server: {
-    proxy: Object.fromEntries(["/indexes", "/stats", "/health", "/metrics"].map((p) => [p, api])),
+    proxy: Object.fromEntries(
+      ["/indexes", "/stats", "/health", "/metrics", "/auth", "/keys", "/docs", "/openapi.json"].map((p) => [p, api]),
+    ),
   },
 });

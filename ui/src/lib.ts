@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { IndexInfo } from "./api";
+import type { IndexInfo, Metadata, Role } from "./api";
 
 function subscribeHash(onChange: () => void) {
   window.addEventListener("hashchange", onChange);
@@ -49,8 +49,12 @@ export function usePoll<T>(load: () => Promise<T>, intervalMs: number, deps: unk
   return { data, error, reload, setData };
 }
 
+export const ROLE_RANK: Record<Role, number> = { read: 0, write: 1, admin: 2 };
+export const ROLE_LABEL: Record<Role, string> = { read: "Read", write: "Read & write", admin: "Admin" };
+
 const integer = new Intl.NumberFormat("en-US");
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
 export const fmtInt = (n: number | null | undefined) => (n == null ? "—" : integer.format(n));
 export const fmtCompact = (n: number | null | undefined) => (n == null ? "—" : compact.format(n));
@@ -81,10 +85,41 @@ export function fmtDuration(seconds: number) {
   return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
 }
 
+export function fmtRelative(epochSeconds: number | null | undefined) {
+  if (!epochSeconds) return "Never";
+  const delta = epochSeconds - Date.now() / 1000;
+  const abs = Math.abs(delta);
+  if (abs < 45) return delta <= 0 ? "Just now" : "In a moment";
+  const steps: [Intl.RelativeTimeFormatUnit, number][] = [
+    ["minute", 60], ["hour", 3600], ["day", 86400], ["week", 604800], ["month", 2629800], ["year", 31557600],
+  ];
+  let unit = steps[0];
+  for (const step of steps) if (abs >= step[1]) unit = step;
+  const text = relative.format(Math.round(delta / unit[1]), unit[0]);
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export function structureLabel(info: Pick<IndexInfo, "index_type" | "annTypes" | "hnsw">) {
-  const kinds = info.annTypes.length ? info.annTypes : [info.index_type === "hnsw" ? "hnsw" : "flat"];
-  const text = kinds.map((k) => (k === "hnsw" ? `HNSW m=${info.hnsw.m}` : "Flat")).join(" + ");
-  return info.index_type === "auto" ? `${text} (auto)` : text;
+  const graph = info.annTypes.includes("hnsw") || (!info.annTypes.length && info.index_type === "hnsw");
+  const text = graph ? `HNSW · m ${info.hnsw.m}` : "Flat";
+  return info.index_type === "auto" ? `${text} · auto` : text;
+}
+
+const TITLE_FIELDS = ["title", "name", "label", "heading", "headline", "text", "summary", "description"];
+
+/** The field a person would call a record by, when its metadata has one. */
+export function titleOf(metadata?: Metadata | null): { field: string; text: string } | undefined {
+  if (!metadata) return undefined;
+  for (const field of TITLE_FIELDS) {
+    const value = metadata[field];
+    if (typeof value === "string" && value.trim()) return { field, text: value };
+  }
+  return undefined;
+}
+
+export function initials(name: string) {
+  const words = name.replace(/[^\p{L}\p{N} ]/gu, " ").split(" ").filter(Boolean);
+  return ((words[0]?.[0] ?? "N") + (words[1]?.[0] ?? "")).toUpperCase();
 }
 
 export function randomUnitVector(dimension: number): number[] {
@@ -113,17 +148,17 @@ type Parsed<T> = { ok: true; value: T } | { ok: false; message: string };
 
 export function parseVector(text: string, dimension: number): Parsed<number[]> {
   const trimmed = text.trim();
-  if (!trimmed) return { ok: false, message: `Paste a JSON array of ${dimension} numbers, or generate a random one.` };
+  if (!trimmed) return { ok: false, message: `Paste ${dimension} numbers as a JSON array, or generate a random vector.` };
   let value: unknown;
   try {
     value = JSON.parse(trimmed);
   } catch {
-    return { ok: false, message: "Not valid JSON — expected an array like [0.12, -0.4, …]." };
+    return { ok: false, message: "That isn't valid JSON — expected an array like [0.12, -0.4, …]." };
   }
   if (!Array.isArray(value) || !value.every((x) => typeof x === "number" && Number.isFinite(x))) {
     return { ok: false, message: "The vector must be an array of finite numbers." };
   }
-  if (value.length !== dimension) return { ok: false, message: `This index is ${dimension}-d; the vector has ${value.length} numbers.` };
+  if (value.length !== dimension) return { ok: false, message: `This index is ${dimension}-dimensional; the vector has ${value.length} numbers.` };
   return { ok: true, value };
 }
 
@@ -135,6 +170,6 @@ export function parseObject(text: string, what: string): Parsed<Record<string, u
     if (value && typeof value === "object" && !Array.isArray(value)) return { ok: true, value };
     return { ok: false, message: `The ${what} must be a JSON object.` };
   } catch {
-    return { ok: false, message: `The ${what} is not valid JSON.` };
+    return { ok: false, message: `The ${what} isn't valid JSON.` };
   }
 }

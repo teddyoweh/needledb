@@ -1,5 +1,46 @@
 export type Metric = "cosine" | "dotproduct" | "euclidean";
 export type IndexType = "auto" | "flat" | "hnsw";
+export type Role = "read" | "write" | "admin";
+
+export type Principal = {
+  id: string;
+  name: string;
+  role: Role;
+  indexes: string[] | null;
+  source: "key" | "environment" | "local";
+};
+
+export type Security = {
+  https: boolean;
+  secureCookies: boolean;
+  sessionHours: number;
+  lockout: { maxFailures: number; windowSeconds: number; blockSeconds: number };
+  maxBodyBytes: number;
+  trustProxy: boolean;
+  environmentKeys: number;
+  managedKeys: number;
+};
+
+export type Me = {
+  authRequired: boolean;
+  authenticated: boolean;
+  version?: string;
+  principal?: Principal;
+  via?: "key" | "session" | "local";
+  sessionExpiresAt?: number | null;
+  security?: Security;
+};
+
+export type ApiKey = {
+  id: string;
+  name: string;
+  prefix: string | null;
+  role: Role;
+  indexes: string[] | null;
+  createdAt: number | null;
+  lastUsedAt: number | null;
+  managed: boolean;
+};
 
 export type IndexInfo = {
   name: string;
@@ -27,7 +68,7 @@ export type Traffic = {
 
 export type Stats = {
   version: string;
-  dataDir: string;
+  dataDir: string | null;
   authEnabled: boolean;
   totals: { indexes: number; vectors: number; memoryBytes: number; storageBytes: number };
   process: { rssBytes: number | null; cpuCount: number; threads: number; pid: number };
@@ -52,53 +93,37 @@ export type IndexStats = {
   totalVectorCount: number;
   namespaces: Record<string, NamespaceStats>;
 };
-export type VectorRecord = { id: string; values: number[]; metadata: Metadata | null };
+export type VectorRecord = { id: string; values?: number[]; metadata: Metadata | null };
 
 export class ApiError extends Error {
   status: number;
   code: string;
-  constructor(status: number, code: string, message: string) {
+  retryAfter?: number;
+  constructor(status: number, code: string, message: string, retryAfter?: number) {
     super(message);
     this.status = status;
     this.code = code;
+    this.retryAfter = retryAfter;
   }
 }
 
-const KEY_STORAGE = "needledb.apiKey";
+const signedOut = new Set<() => void>();
 
-export const apiKey = {
-  get(): string {
-    try {
-      return localStorage.getItem(KEY_STORAGE) ?? "";
-    } catch {
-      return "";
-    }
-  },
-  set(value: string) {
-    try {
-      if (value) localStorage.setItem(KEY_STORAGE, value);
-      else localStorage.removeItem(KEY_STORAGE);
-    } catch {
-      /* storage unavailable: the key lasts for this page only */
-    }
-  },
-};
-
-const unauthorized = new Set<() => void>();
-
-export function onUnauthorized(listener: () => void): () => void {
-  unauthorized.add(listener);
+/** Called when the server says the session is gone, so the app can show sign-in. */
+export function onSignedOut(listener: () => void): () => void {
+  signedOut.add(listener);
   return () => {
-    unauthorized.delete(listener);
+    signedOut.delete(listener);
   };
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {};
-  const key = apiKey.get();
-  if (key) headers["Api-Key"] = key;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const res = await fetch(path, {
+    method,
+    credentials: "same-origin",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   const text = await res.text();
   let data: unknown = {};
   try {
@@ -108,8 +133,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   }
   if (!res.ok) {
     const err = (data as { error?: { code: string; message: string } }).error;
-    if (res.status === 401) unauthorized.forEach((fn) => fn());
-    throw new ApiError(res.status, err?.code ?? `HTTP_${res.status}`, err?.message ?? (res.statusText || "Request failed"));
+    if (res.status === 401 && !path.startsWith("/auth/")) signedOut.forEach((fn) => fn());
+    const retry = Number(res.headers.get("Retry-After")) || undefined;
+    throw new ApiError(res.status, err?.code ?? `HTTP_${res.status}`, err?.message ?? (res.statusText || "Request failed"), retry);
   }
   return data as T;
 }
@@ -117,7 +143,15 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 const seg = encodeURIComponent;
 
 export const api = {
-  health: () => call<{ status: string; version: string }>("GET", "/health"),
+  me: () => call<Me>("GET", "/auth/me"),
+  login: (apiKey: string) => call<Me>("POST", "/auth/login", { apiKey }),
+  logout: () => call<object>("POST", "/auth/logout", {}),
+  revokeAllSessions: () => call<object>("POST", "/auth/sessions/revoke-all", {}),
+
+  keys: () => call<{ keys: ApiKey[] }>("GET", "/keys"),
+  createKey: (body: { name: string; role: Role; indexes?: string[] }) => call<ApiKey & { key: string }>("POST", "/keys", body),
+  revokeKey: (id: string) => call<object>("DELETE", `/keys/${seg(id)}`),
+
   stats: () => call<Stats>("GET", "/stats"),
   indexes: () => call<{ indexes: IndexInfo[] }>("GET", "/indexes"),
   index: (name: string) => call<IndexInfo>("GET", `/indexes/${seg(name)}`),
@@ -134,8 +168,8 @@ export const api = {
     if (params.paginationToken) qs.set("paginationToken", params.paginationToken);
     return call<{ vectors: { id: string }[]; pagination: { next?: string } }>("GET", `/indexes/${seg(name)}/vectors/list?${qs}`);
   },
-  fetch: (name: string, ids: string[], namespace: string) =>
-    call<{ vectors: Record<string, VectorRecord> }>("POST", `/indexes/${seg(name)}/vectors/fetch`, { ids, namespace }),
+  fetch: (name: string, ids: string[], namespace: string, includeValues = true) =>
+    call<{ vectors: Record<string, VectorRecord> }>("POST", `/indexes/${seg(name)}/vectors/fetch`, { ids, namespace, includeValues }),
   upsert: (name: string, vectors: unknown[], namespace: string) =>
     call<{ upsertedCount: number }>("POST", `/indexes/${seg(name)}/vectors/upsert`, { vectors, namespace }),
   deleteVectors: (name: string, ids: string[], namespace: string) =>

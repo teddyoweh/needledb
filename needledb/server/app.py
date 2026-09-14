@@ -1,12 +1,16 @@
-"""The HTTP API: control plane, data plane, ops endpoints and the dashboard.
+"""The HTTP API: auth, control plane, data plane, ops endpoints and the web app.
 
 Handlers read the raw body on the event loop, then parse, run the engine and
 serialize in a worker thread — FAISS releases the GIL while it searches, so
 concurrent queries use every core and the loop never blocks on a large payload.
+
+Every request passes one gate that sets security headers, caps the body size,
+authenticates (an `Api-Key` header, or the web app's session cookie), refuses
+cross-site cookie writes, and records metrics. Each route then checks the caller's
+role and index access.
 """
 from __future__ import annotations
 
-import hmac
 import os
 import threading
 from contextlib import asynccontextmanager
@@ -24,19 +28,32 @@ from starlette.staticfiles import StaticFiles
 from .. import __version__
 from ..core import IndexConfig, Registry
 from ..core.metrics import Metrics
-from ..errors import InvalidArgument, NeedleError
+from ..errors import (
+    InvalidArgument,
+    NeedleError,
+    NotFound,
+    PayloadTooLarge,
+    PermissionDenied,
+    Unauthenticated,
+)
+from .auth import LOCAL, SESSION_COOKIE, SESSION_TTL_S, KeyStore, Lockout, Principal
 
 STATIC_DIR = Path(__file__).parent / "static"
-_PUBLIC = ("/health", "/ui", "/docs", "/openapi.json")
-_UNTRACKED = ("/health", "/metrics", "/stats", "/ui", "/docs", "/openapi.json")
+_PUBLIC = {"/", "/health", "/auth/login", "/auth/logout", "/auth/me", "/app", "/ui"}
+_PUBLIC_PREFIXES = ("/app/", "/ui/")
+_UNTRACKED = ("/health", "/metrics", "/stats", "/app", "/ui", "/auth", "/keys", "/docs", "/openapi.json")
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+_APP_CSP = (b"default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; "
+            b"form-action 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+            b"script-src 'self'; connect-src 'self'")
 
 
-def _json(content, status: int = 200) -> Response:
-    return Response(orjson.dumps(content), status_code=status, media_type="application/json")
+def _json(content, status: int = 200, headers: dict | None = None) -> Response:
+    return Response(orjson.dumps(content), status_code=status, media_type="application/json", headers=headers)
 
 
-def _error(status: int, code: str, message: str) -> Response:
-    return _json({"error": {"code": code, "message": message}}, status)
+def _error(status: int, code: str, message: str, headers: dict | None = None) -> Response:
+    return _json({"error": {"code": code, "message": message}}, status, headers)
 
 
 def _parse(raw: bytes) -> dict:
@@ -67,32 +84,77 @@ def _rss_bytes() -> int | None:
         return None
 
 
-class _Gate:
-    """ASGI middleware: Api-Key auth, then per-route request metrics."""
+def _cookie(headers: dict[bytes, bytes], name: str) -> str | None:
+    raw = headers.get(b"cookie")
+    if not raw:
+        return None
+    for part in raw.decode("latin-1").split(";"):
+        key, _, value = part.strip().partition("=")
+        if key == name and value:
+            return value
+    return None
 
-    def __init__(self, app, keys: list[str], metrics: Metrics):
-        self.app = app
-        self.keys = [k.encode() for k in keys]
-        self.metrics = metrics
+
+class _Gate:
+    """ASGI middleware: security headers, body cap, authentication, CSRF, metrics."""
+
+    def __init__(self, app, *, store: KeyStore, lockout: Lockout, auth_enabled: bool, metrics: Metrics,
+                 max_body: int, trust_proxy: bool):
+        self.app, self.store, self.lockout, self.metrics = app, store, lockout, metrics
+        self.auth_enabled, self.max_body, self.trust_proxy = auth_enabled, max_body, trust_proxy
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        path = scope["path"]
-        if self.keys and path != "/" and not path.startswith(_PUBLIC):
-            supplied = b""
-            for name, value in scope["headers"]:
-                if name == b"api-key":
-                    supplied = value
-                    break
-                if name == b"authorization" and value[:7].lower() == b"bearer ":
-                    supplied = value[7:]
-            if not any(hmac.compare_digest(supplied, key) for key in self.keys):
-                response = _error(401, "UNAUTHENTICATED", "missing or invalid Api-Key header")
-                return await response(scope, receive, send)
+        headers = dict(scope["headers"])
+        path, method = scope["path"], scope["method"]
+        https = scope.get("scheme") == "https" or (
+            self.trust_proxy and headers.get(b"x-forwarded-proto", b"").split(b",")[0].strip() == b"https")
+        client = scope.get("client")
+        ip = client[0] if client else "unknown"
+        if self.trust_proxy and headers.get(b"x-forwarded-for"):
+            ip = headers[b"x-forwarded-for"].split(b",")[0].strip().decode("latin-1")
+        state = scope.setdefault("state", {})
+        state.update(https=https, client_ip=ip, principal=None, auth_via=None, session=None)
+        send = self._secure(send, path, https)
+
+        length = headers.get(b"content-length", b"")
+        if length.isdigit() and int(length) > self.max_body:
+            return await self._refuse(scope, receive, send, 413, "PAYLOAD_TOO_LARGE",
+                                      f"request body exceeds {self.max_body // 2**20} MB")
+        receive = self._capped(receive)
+
+        if not self.auth_enabled:
+            state.update(principal=LOCAL, auth_via="local")
+        else:
+            key = headers.get(b"api-key")
+            if key is None and headers.get(b"authorization", b"")[:7].lower() == b"bearer ":
+                key = headers[b"authorization"][7:]
+            if key is not None:
+                wait = self.lockout.retry_after(ip)
+                if wait:
+                    return await self._refuse(scope, receive, send, 429, "RESOURCE_EXHAUSTED",
+                                              f"too many failed attempts; try again in {wait} s",
+                                              {"Retry-After": str(wait)})
+                principal = self.store.authenticate(key.decode("latin-1").strip())
+                if principal is None:
+                    self.lockout.failed(ip)
+                    return await self._refuse(scope, receive, send, 401, "UNAUTHENTICATED", "invalid API key")
+                self.lockout.succeeded(ip)
+                state.update(principal=principal, auth_via="key")
+            elif (token := _cookie(headers, SESSION_COOKIE)) and (verified := self.store.verify_session(token)):
+                if method not in _SAFE_METHODS and not self._same_origin(headers, https):
+                    return await self._refuse(scope, receive, send, 403, "PERMISSION_DENIED",
+                                              "cross-site request refused")
+                state.update(principal=verified[0], auth_via="session", session=verified[1])
+
+        public = path in _PUBLIC or path.startswith(_PUBLIC_PREFIXES)
+        if state["principal"] is None and not public:
+            return await self._refuse(scope, receive, send, 401, "UNAUTHENTICATED",
+                                      "sign in, or send an Api-Key header")
+
         if path == "/" or path.startswith(_UNTRACKED):
             return await self.app(scope, receive, send)
-
         started, status = perf_counter(), 500
 
         async def send_with_status(message):
@@ -105,35 +167,101 @@ class _Gate:
             await self.app(scope, receive, send_with_status)
         finally:
             route = scope.get("route")
-            self.metrics.observe(getattr(route, "path", "unmatched"), scope["method"], status,
-                                 (perf_counter() - started) * 1000,
-                                 (scope.get("path_params") or {}).get("name"))
+            self.metrics.observe(getattr(route, "path", "unmatched"), method, status,
+                                 (perf_counter() - started) * 1000, (scope.get("path_params") or {}).get("name"))
+
+    @staticmethod
+    async def _refuse(scope, receive, send, status, code, message, headers=None):
+        await _error(status, code, message, headers)(scope, receive, send)
+
+    def _capped(self, receive):
+        seen = 0
+
+        async def wrapped():
+            nonlocal seen
+            message = await receive()
+            if message["type"] == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > self.max_body:
+                    raise PayloadTooLarge(f"request body exceeds {self.max_body // 2**20} MB")
+            return message
+
+        return wrapped
+
+    def _same_origin(self, headers, https: bool) -> bool:
+        origin = headers.get(b"origin")
+        if origin is None:
+            return headers.get(b"sec-fetch-site", b"same-origin") in (b"same-origin", b"none")
+        host = headers.get(b"x-forwarded-host") if self.trust_proxy and headers.get(b"x-forwarded-host") \
+            else headers.get(b"host", b"")
+        return origin == (b"https://" if https else b"http://") + host
+
+    @staticmethod
+    def _secure(send, path: str, https: bool):
+        async def wrapped(message):
+            if message["type"] == "http.response.start":
+                out = list(message.get("headers", []))
+                present = {k.lower() for k, _ in out}
+
+                def add(name: bytes, value: bytes):
+                    if name not in present:
+                        out.append((name, value))
+
+                add(b"x-content-type-options", b"nosniff")
+                add(b"referrer-policy", b"no-referrer")
+                add(b"x-frame-options", b"DENY")
+                add(b"cross-origin-opener-policy", b"same-origin")
+                if path.startswith("/app"):
+                    add(b"content-security-policy", _APP_CSP)
+                elif not path.startswith(("/docs", "/openapi.json")):
+                    add(b"content-security-policy", b"default-src 'none'; frame-ancestors 'none'")
+                if not path.startswith("/app/assets/"):
+                    add(b"cache-control", b"no-store")
+                if https:
+                    add(b"strict-transport-security", b"max-age=31536000; includeSubDomains")
+                message["headers"] = out
+            await send(message)
+
+        return wrapped
 
 
 def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = None,
-               allow_no_auth: bool | None = None) -> FastAPI:
+               allow_no_auth: bool | None = None, trust_proxy: bool | None = None,
+               max_body_mb: int | None = None) -> FastAPI:
     data_dir = Path(data_dir or os.environ.get("NEEDLEDB_DATA", "./data"))
     if api_keys is None:
         api_keys = [k.strip() for k in os.environ.get("NEEDLEDB_API_KEY", "").split(",") if k.strip()]
     if allow_no_auth is None:
         allow_no_auth = os.environ.get("NEEDLEDB_ALLOW_NO_AUTH") == "1"
-    if not api_keys and not allow_no_auth:
-        raise RuntimeError("no API key configured: set NEEDLEDB_API_KEY, or "
-                           "NEEDLEDB_ALLOW_NO_AUTH=1 for local development")
+    if trust_proxy is None:
+        trust_proxy = os.environ.get("NEEDLEDB_TRUST_PROXY") == "1"
+    if max_body_mb is None:
+        max_body_mb = int(os.environ.get("NEEDLEDB_MAX_BODY_MB", "64"))
+    auth_enabled = not allow_no_auth
+    store = KeyStore(data_dir / "_system", api_keys)
+    if auth_enabled and not api_keys and store.count_active() == 0:
+        store.close()
+        raise RuntimeError("no API key configured: set NEEDLEDB_API_KEY (or create one with "
+                           "`needledb keys create`), or use --no-auth on localhost for development")
 
     registry = Registry(data_dir)
     metrics = Metrics()
+    lockout = Lockout()
+    max_body = max_body_mb * 2**20
     run = to_thread.run_sync
 
     @asynccontextmanager
     async def lifespan(_app):
         yield
         await run(registry.close)
+        store.close()
 
     app = FastAPI(title="NeedleDB", version=__version__, lifespan=lifespan, redoc_url=None)
     app.state.registry = registry
     app.state.metrics = metrics
-    app.add_middleware(_Gate, keys=api_keys, metrics=metrics)
+    app.state.keys = store
+    app.add_middleware(_Gate, store=store, lockout=lockout, auth_enabled=auth_enabled, metrics=metrics,
+                       max_body=max_body, trust_proxy=trust_proxy)
 
     # ---- errors ----------------------------------------------------------------------
 
@@ -157,24 +285,139 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     async def _internal_error(_request, _exc: Exception):
         return _error(500, "INTERNAL", "internal error")
 
+    # ---- authorization helpers -------------------------------------------------------
+
+    def need(request: Request, role: str, index: str | None = None) -> Principal:
+        principal: Principal = request.state.principal
+        if principal is None:
+            raise Unauthenticated("sign in, or send an Api-Key header")
+        if index is not None and not principal.can_access(index):
+            raise NotFound(f"index {index!r} not found")        # other indexes look absent
+        if not principal.allows(role):
+            raise PermissionDenied(f"this key has {principal.role} access; {role} access is required")
+        return principal
+
+    def index_for(request: Request, name: str, role: str):
+        need(request, role, name)
+        return registry.get(name)
+
+    def visible(request: Request):
+        principal: Principal = request.state.principal
+        return [i for i in registry.list() if principal.can_access(i.cfg.name)]
+
     def describe(index, request: Request) -> dict:
         out = index.summary()
         out["host"] = f"{str(request.base_url).rstrip('/')}/indexes/{index.cfg.name}"
         return out
 
-    # ---- ops -------------------------------------------------------------------------
+    def me(request: Request, principal: Principal | None, expires: int | None = None) -> dict:
+        out = {"authRequired": auth_enabled, "authenticated": principal is not None}
+        if principal is None:
+            return out
+        session = request.state.session
+        return {
+            **out,
+            "version": __version__,
+            "principal": principal.to_dict(),
+            "via": request.state.auth_via,
+            "sessionExpiresAt": expires or (session or {}).get("exp"),
+            "security": {
+                "https": request.state.https,
+                "secureCookies": request.state.https,
+                "sessionHours": SESSION_TTL_S // 3600,
+                "lockout": {"maxFailures": lockout.max_failures, "windowSeconds": int(lockout.window_s),
+                            "blockSeconds": int(lockout.block_s)},
+                "maxBodyBytes": max_body,
+                "trustProxy": trust_proxy,
+                "environmentKeys": store.environment_key_count,
+                "managedKeys": store.count_active(),
+            },
+        }
+
+    def session_cookie(response: Response, request: Request, token: str) -> None:
+        response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL_S, httponly=True, samesite="strict",
+                            secure=request.state.https, path="/")
+
+    # ---- auth ------------------------------------------------------------------------
 
     @app.get("/health")
     async def health():
-        return _json({"status": "ok", "version": __version__})
+        return _json({"status": "ok"})
+
+    @app.get("/auth/me")
+    async def auth_me(request: Request):
+        return _json(me(request, request.state.principal))
+
+    @app.post("/auth/login")
+    async def auth_login(request: Request):
+        if not auth_enabled:
+            return _json(me(request, LOCAL))
+        body = _parse(await request.body())
+        ip = request.state.client_ip
+        wait = lockout.retry_after(ip)
+        if wait:
+            return _error(429, "RESOURCE_EXHAUSTED", f"too many failed attempts; try again in {wait} s",
+                          {"Retry-After": str(wait)})
+        key = body.get("apiKey", body.get("api_key"))
+        principal = store.authenticate(key.strip()) if isinstance(key, str) else None
+        if principal is None:
+            lockout.failed(ip)
+            raise Unauthenticated("that API key isn't valid")
+        lockout.succeeded(ip)
+        token, expires = store.issue_session(principal)
+        request.state.auth_via = "session"
+        response = _json(me(request, principal, expires))
+        session_cookie(response, request, token)
+        return response
+
+    @app.post("/auth/logout")
+    async def auth_logout(request: Request):
+        if request.state.session:
+            store.end_session(request.state.session)
+        response = _json({})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
+    @app.post("/auth/sessions/revoke-all")
+    async def revoke_sessions(request: Request):
+        need(request, "admin")
+        store.rotate_secret()
+        response = _json({})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
+    @app.get("/keys")
+    async def list_keys(request: Request):
+        need(request, "admin")
+        return _json({"keys": store.list_keys()})
+
+    @app.post("/keys")
+    async def create_key(request: Request):
+        need(request, "admin")
+        body = _parse(await request.body())
+        info, key = store.create_key(body.get("name"), body.get("role", "read"), body.get("indexes"))
+        return _json({**info, "key": key}, 201)
+
+    @app.delete("/keys/{key_id}")
+    async def revoke_key(key_id: str, request: Request):
+        need(request, "admin")
+        store.revoke_key(key_id)
+        return _json({})
+
+    # ---- ops -------------------------------------------------------------------------
 
     @app.get("/stats")
     async def stats(request: Request):
-        indexes = [describe(i, request) for i in registry.list()]
+        principal = need(request, "read")
+        indexes = [describe(i, request) for i in visible(request)]
+        live = metrics.live()
+        if principal.indexes is not None:
+            live["routes"] = {}
+            live["indexes"] = {k: v for k, v in live["indexes"].items() if principal.can_access(k)}
         return _json({
             "version": __version__,
-            "dataDir": str(data_dir.resolve()),
-            "authEnabled": bool(api_keys),
+            "dataDir": str(data_dir.resolve()) if principal.allows("admin") else None,
+            "authEnabled": auth_enabled,
             "totals": {
                 "indexes": len(indexes),
                 "vectors": sum(i["vectorCount"] for i in indexes),
@@ -183,12 +426,15 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
             },
             "process": {"rssBytes": _rss_bytes(), "cpuCount": os.cpu_count(),
                         "threads": threading.active_count(), "pid": os.getpid()},
-            "requests": metrics.live(),
+            "requests": live,
             "indexes": indexes,
         })
 
     @app.get("/metrics")
-    async def prometheus():
+    async def prometheus(request: Request):
+        principal = need(request, "read")
+        if principal.indexes is not None:
+            raise PermissionDenied("metrics cover every index; use a key without an index restriction")
         vectors, memory, storage = {}, {}, {}
         for index in registry.list():
             for ns, coll in list(index.collections.items()):
@@ -205,10 +451,12 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
 
     @app.get("/indexes")
     async def list_indexes(request: Request):
-        return _json({"indexes": [describe(i, request) for i in registry.list()]})
+        need(request, "read")
+        return _json({"indexes": [describe(i, request) for i in visible(request)]})
 
     @app.post("/indexes")
     async def create_index(request: Request):
+        need(request, "admin")
         body = _parse(await request.body())
         try:
             cfg = IndexConfig.from_dict({
@@ -225,11 +473,11 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
 
     @app.get("/indexes/{name}")
     async def describe_index(name: str, request: Request):
-        return _json(describe(registry.get(name), request))
+        return _json(describe(index_for(request, name, "read"), request))
 
     @app.patch("/indexes/{name}")
     async def configure_index(name: str, request: Request):
-        index = registry.get(name)
+        index = index_for(request, name, "admin")
         body = _parse(await request.body())
         hnsw = body.get("hnsw") or {}
         if not isinstance(hnsw, dict) or set(body) - {"hnsw", "ef_search", "efSearch"} \
@@ -240,7 +488,8 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
         return _json(describe(index, request))
 
     @app.delete("/indexes/{name}")
-    async def delete_index(name: str):
+    async def delete_index(name: str, request: Request):
+        need(request, "admin", name)
         await run(registry.delete_index, name)
         return _json({}, 202)
 
@@ -248,7 +497,8 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
 
     @app.post("/indexes/{name}/vectors/upsert")
     async def upsert(name: str, request: Request):
-        index, raw = registry.get(name), await request.body()
+        index = index_for(request, name, "write")
+        raw = await request.body()
 
         def work():
             body = _parse(raw)
@@ -258,7 +508,8 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
 
     @app.post("/indexes/{name}/query")
     async def query(name: str, request: Request):
-        index, raw = registry.get(name), await request.body()
+        index = index_for(request, name, "read")
+        raw = await request.body()
 
         def work():
             body = _parse(raw)
@@ -277,7 +528,7 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
 
     @app.get("/indexes/{name}/vectors/fetch")
     async def fetch_get(name: str, request: Request):
-        index = registry.get(name)
+        index = index_for(request, name, "read")
         ids = request.query_params.getlist("ids")
         namespace = request.query_params.get("namespace")
         result = await run(lambda: orjson.dumps(index.fetch(ids, namespace)))
@@ -285,17 +536,21 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
 
     @app.post("/indexes/{name}/vectors/fetch")
     async def fetch_post(name: str, request: Request):
-        index, raw = registry.get(name), await request.body()
+        index = index_for(request, name, "read")
+        raw = await request.body()
 
         def work():
             body = _parse(raw)
-            return orjson.dumps(index.fetch(body.get("ids"), body.get("namespace")))
+            return orjson.dumps(index.fetch(body.get("ids"), body.get("namespace"),
+                                            include_values=bool(_opt(body, "includeValues", "include_values",
+                                                                     default=True))))
 
         return Response(await run(work), media_type="application/json")
 
     @app.post("/indexes/{name}/vectors/update")
     async def update(name: str, request: Request):
-        index, raw = registry.get(name), await request.body()
+        index = index_for(request, name, "write")
+        raw = await request.body()
 
         def work():
             body = _parse(raw)
@@ -307,7 +562,8 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
 
     @app.post("/indexes/{name}/vectors/delete")
     async def delete(name: str, request: Request):
-        index, raw = registry.get(name), await request.body()
+        index = index_for(request, name, "write")
+        raw = await request.body()
 
         def work():
             body = _parse(raw)
@@ -319,32 +575,38 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     @app.get("/indexes/{name}/vectors/list")
     async def list_vectors(name: str, request: Request, prefix: str | None = None, limit: int = 100,
                            paginationToken: str | None = None, namespace: str | None = None):
-        index = registry.get(name)
+        index = index_for(request, name, "read")
         return _json(await run(index.list_ids, prefix, limit, paginationToken, namespace))
 
     @app.post("/indexes/{name}/describe_index_stats")
     async def describe_stats_post(name: str, request: Request):
-        index = registry.get(name)
+        index = index_for(request, name, "read")
         body = _parse(await request.body())
         return _json(await run(index.describe_stats, body.get("filter")))
 
     @app.get("/indexes/{name}/describe_index_stats")
-    async def describe_stats_get(name: str):
-        return _json(await run(registry.get(name).describe_stats))
+    async def describe_stats_get(name: str, request: Request):
+        index = index_for(request, name, "read")
+        return _json(await run(index.describe_stats))
 
-    # ---- dashboard -------------------------------------------------------------------
+    # ---- web app ---------------------------------------------------------------------
 
     @app.get("/", include_in_schema=False)
     async def root():
-        return RedirectResponse("/ui/")
+        return RedirectResponse("/app/")
+
+    @app.get("/ui", include_in_schema=False)
+    @app.get("/ui/{rest:path}", include_in_schema=False)
+    async def legacy_ui(rest: str = ""):
+        return RedirectResponse("/app/", status_code=308)
 
     if (STATIC_DIR / "index.html").exists():
-        app.mount("/ui", StaticFiles(directory=STATIC_DIR, html=True), name="ui")
+        app.mount("/app", StaticFiles(directory=STATIC_DIR, html=True), name="app")
     else:
-        @app.get("/ui", include_in_schema=False)
-        @app.get("/ui/", include_in_schema=False)
-        async def ui_missing():
-            return Response("<p>The dashboard is not built. Run <code>npm --prefix ui install "
+        @app.get("/app", include_in_schema=False)
+        @app.get("/app/", include_in_schema=False)
+        async def app_missing():
+            return Response("<p>The web app is not built. Run <code>npm --prefix ui install "
                             "&amp;&amp; npm --prefix ui run build</code>, then restart.</p>",
                             media_type="text/html")
 

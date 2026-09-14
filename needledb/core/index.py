@@ -198,7 +198,7 @@ class Index:
             "usage": {"latencyMs": round((time.perf_counter() - started) * 1000, 3), "plan": plan},
         }
 
-    def fetch(self, ids: list[str], namespace: str | None = None) -> dict:
+    def fetch(self, ids: list[str], namespace: str | None = None, include_values: bool = True) -> dict:
         ns = self._namespace(namespace)
         if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
             raise InvalidArgument("ids must be a list of strings")
@@ -208,7 +208,7 @@ class Index:
         if coll is None:
             return {"vectors": {}, "namespace": ns}
         with coll.lock.read():
-            return {"vectors": coll.fetch(ids), "namespace": ns}
+            return {"vectors": coll.fetch(ids, include_values), "namespace": ns}
 
     def update(self, id: str, values=None, set_metadata: dict | None = None,
                namespace: str | None = None) -> None:

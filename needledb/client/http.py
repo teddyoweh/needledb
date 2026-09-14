@@ -86,6 +86,21 @@ class NeedleDB:
 
     index = Index
 
+    # ---- API keys (admin) ------------------------------------------------------------
+
+    def create_key(self, name: str, role: str = "read", indexes: list[str] | None = None) -> Obj:
+        """Create a key. The returned `key` is the only time the secret is available."""
+        body = {"name": name, "role": role}
+        if indexes is not None:
+            body["indexes"] = indexes
+        return wrap(self.request("POST", "/keys", body))
+
+    def list_keys(self) -> list[Obj]:
+        return wrap(self.request("GET", "/keys")["keys"])
+
+    def revoke_key(self, key_id: str) -> None:
+        self.request("DELETE", f"/keys/{key_id}")
+
     def health(self) -> Obj:
         return wrap(self.request("GET", "/health"))
 

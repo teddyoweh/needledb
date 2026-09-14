@@ -269,13 +269,14 @@ class Collection:
             raise NotFound(f"vector {rid!r} not found in namespace {self.namespace!r}")
         return self._original(slot).astype(np.float32)
 
-    def fetch(self, ids: list[str]) -> dict[str, dict]:
+    def fetch(self, ids: list[str], include_values: bool = True) -> dict[str, dict]:
         out = {}
         for rid in ids:
             slot = self.id_to_slot.get(rid)
             if slot is not None:
-                out[rid] = {"id": rid, "values": self._original(slot).astype(np.float32).tolist(),
-                            "metadata": self.meta.get(slot)}
+                out[rid] = {"id": rid, "metadata": self.meta.get(slot)}
+                if include_values:
+                    out[rid]["values"] = self._original(slot).astype(np.float32).tolist()
         return out
 
     def list_ids(self, prefix: str | None, limit: int, after: str | None) -> tuple[list[str], str | None]:

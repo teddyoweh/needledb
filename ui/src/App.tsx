@@ -1,71 +1,59 @@
-import { useEffect, useState } from "react";
-import { api, onUnauthorized } from "./api";
-import { KeyDialog, NeedleMark } from "./components";
-import { fmtCompact, go, useHashRoute, usePoll } from "./lib";
-import IndexPage from "./pages/IndexPage";
-import Indexes from "./pages/Indexes";
-import Overview from "./pages/Overview";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api, type Me, type Principal, type Role, onSignedOut } from "./api";
+import { BrandMark } from "./icons";
+import { ROLE_RANK } from "./lib";
+import { type Session, SessionContext } from "./session";
+import Shell from "./Shell";
+import SignIn from "./SignIn";
+import { ErrorNote, ToastProvider } from "./ui";
 
 export default function App() {
-  const { parts, params } = useHashRoute();
-  const [askKey, setAskKey] = useState(false);
-  useEffect(() => onUnauthorized(() => setAskKey(true)), []);
+  const [me, setMe] = useState<Me | null>(null);
+  const [error, setError] = useState<string>();
 
-  const indexes = usePoll(api.indexes, 5000);
-  const health = usePoll(api.health, 30000);
-  const section = parts[0] ?? "";
-  const current = section === "indexes" ? parts[1] : undefined;
+  const refresh = useCallback(async () => {
+    try {
+      setMe(await api.me());
+      setError(undefined);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, []);
 
-  let page;
-  if (section === "indexes" && current) {
-    page = (
-      <IndexPage key={current} name={current} tab={parts[2] ?? "overview"} params={params}
-        onChanged={indexes.reload}
-        onDeleted={() => {
-          void indexes.reload();
-          go("/indexes");
-        }} />
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // Any request that finds the session gone drops back to sign-in.
+  useEffect(() => onSignedOut(() => setMe((m) => (m ? { authRequired: m.authRequired, authenticated: false } : m))), []);
+
+  const session = useMemo<Session | null>(() => {
+    if (!me?.authenticated || !me.principal) return null;
+    const principal: Principal = me.principal;
+    return {
+      me: { ...me, principal },
+      refresh,
+      can: (role: Role) => ROLE_RANK[principal.role] >= ROLE_RANK[role],
+      signOut: async () => {
+        await api.logout().catch(() => undefined);
+        setMe({ authRequired: me.authRequired, authenticated: false });
+      },
+    };
+  }, [me, refresh]);
+
+  if (!me) {
+    return (
+      <div className="boot">
+        {error ? <ErrorNote error={`Can't reach the NeedleDB server — ${error}`} /> : <div className="boot-mark"><BrandMark size={44} /></div>}
+      </div>
     );
-  } else if (section === "indexes") {
-    page = (
-      <Indexes indexes={indexes.data?.indexes} error={indexes.error} openNew={params.get("new") === "1"}
-        onCreated={(name) => {
-          void indexes.reload();
-          go(`/indexes/${encodeURIComponent(name)}`);
-        }} />
-    );
-  } else {
-    page = <Overview />;
   }
-
+  if (!session) return <SignIn onSignedIn={setMe} />;
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <a className="brand" href="#/"><NeedleMark /><span>NeedleDB</span></a>
-        <nav className="nav" aria-label="Main">
-          <a href="#/" className={section === "" ? "active" : ""}>Overview</a>
-          <a href="#/indexes" className={section === "indexes" && !current ? "active" : ""}>
-            Indexes <span className="count">{indexes.data?.indexes.length ?? ""}</span>
-          </a>
-          {!!indexes.data?.indexes.length && (
-            <div className="nav-group">
-              {indexes.data.indexes.map((i) => (
-                <a key={i.name} href={`#/indexes/${encodeURIComponent(i.name)}`} className={`sub ${current === i.name ? "active" : ""}`}>
-                  <span className="mono">{i.name}</span>
-                  <span className="count">{fmtCompact(i.vectorCount)}</span>
-                </a>
-              ))}
-            </div>
-          )}
-        </nav>
-        <div className="sidebar-foot">
-          <button type="button" className="link" onClick={() => setAskKey(true)}>API key</button>
-          <a href="/docs" target="_blank" rel="noreferrer">API reference</a>
-          <span>v{health.data?.version ?? "…"}</span>
-        </div>
-      </aside>
-      <main className="main">{page}</main>
-      {askKey && <KeyDialog onClose={() => setAskKey(false)} />}
-    </div>
+    <SessionContext.Provider value={session}>
+      <ToastProvider>
+        <Shell />
+      </ToastProvider>
+    </SessionContext.Provider>
   );
 }

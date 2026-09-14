@@ -21,6 +21,11 @@ class Unauthenticated(NeedleError):
     status = 401
 
 
+class PermissionDenied(NeedleError):
+    code = "PERMISSION_DENIED"
+    status = 403
+
+
 class NotFound(NeedleError):
     code = "NOT_FOUND"
     status = 404
@@ -31,5 +36,15 @@ class AlreadyExists(NeedleError):
     status = 409
 
 
-BY_CODE = {cls.code: cls for cls in
-           (NeedleError, InvalidArgument, Unauthenticated, NotFound, AlreadyExists)}
+class PayloadTooLarge(NeedleError):
+    code = "PAYLOAD_TOO_LARGE"
+    status = 413
+
+
+class ResourceExhausted(NeedleError):
+    code = "RESOURCE_EXHAUSTED"
+    status = 429
+
+
+BY_CODE = {cls.code: cls for cls in (NeedleError, InvalidArgument, Unauthenticated, PermissionDenied,
+                                     NotFound, AlreadyExists, PayloadTooLarge, ResourceExhausted)}

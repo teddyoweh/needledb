@@ -1,37 +1,46 @@
 import { useState } from "react";
 import { api, ApiError, type IndexInfo, type IndexStats } from "../api";
-import { Badge, Button, CopyButton, Empty, ErrorNote, Field, Loading, Panel, Tile } from "../components";
+import { IconChevronRight, IconChip, IconDisk, IconGauge, IconIndexes, IconTrash } from "../icons";
 import { fmtBytes, fmtInt, go, structureLabel, usePoll } from "../lib";
+import { useSession } from "../session";
+import { Badge, Button, Card, Choice, CopyButton, Empty, ErrorNote, Field, PageHeader, Skeleton, Stat, useToast } from "../ui";
 import BrowsePanel from "./BrowsePanel";
 import QueryPanel from "./QueryPanel";
 import UpsertPanel from "./UpsertPanel";
 
-const TABS = [
-  ["overview", "Overview"],
-  ["query", "Query"],
-  ["browse", "Browse"],
-  ["upsert", "Upsert"],
-  ["settings", "Settings"],
-] as const;
-
-export default function IndexPage({ name, tab, params, onChanged, onDeleted }: {
+export default function IndexPage({ name, tab, params, onChanged }: {
   name: string;
   tab: string;
   params: URLSearchParams;
   onChanged: () => void;
-  onDeleted: () => void;
 }) {
+  const { can } = useSession();
   const info = usePoll(() => api.index(name), 3000, [name]);
   const stats = usePoll(() => api.describeStats(name), 3000, [name]);
+
+  const tabs = [
+    ["overview", "Overview"],
+    ["query", "Query"],
+    ["browse", "Browse"],
+    ...(can("write") ? [["upsert", "Upsert"]] : []),
+    ...(can("admin") ? [["settings", "Settings"]] : []),
+  ] as [string, string][];
+  const current = tabs.some(([id]) => id === tab) ? tab : "overview";
+  const crumbs = <a href="#/indexes" className="crumb">Indexes <IconChevronRight size={13} /></a>;
 
   if (!info.data) {
     const missing = info.error instanceof ApiError && info.error.status === 404;
     return (
       <>
-        <header className="page-head"><div><p className="eyebrow"><a href="#/indexes">Indexes</a> /</p><h1 className="mono">{name}</h1></div></header>
+        <PageHeader eyebrow={crumbs} title={name} />
         {missing ? (
-          <Panel><Empty title={`No index named “${name}”`} action={<a className="btn" href="#/indexes">All indexes</a>}>It may have been deleted.</Empty></Panel>
-        ) : info.error ? <ErrorNote error={info.error} /> : <Loading />}
+          <Card>
+            <Empty icon={<IconIndexes size={24} />} title={`There's no index named “${name}”`}
+              action={<Button onClick={() => go("/indexes")}>All indexes</Button>}>
+              It may have been deleted, or your key may not have access to it.
+            </Empty>
+          </Card>
+        ) : info.error ? <ErrorNote error={info.error} /> : <Skeleton height={320} radius={22} />}
       </>
     );
   }
@@ -43,114 +52,127 @@ export default function IndexPage({ name, tab, params, onChanged, onDeleted }: {
     void stats.reload();
     onChanged();
   };
+  const ready = index.status.state === "Ready";
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <p className="eyebrow"><a href="#/indexes">Indexes</a> /</p>
-          <h1 className="mono">{index.name}</h1>
-          <div className="chips">
-            <Badge>{index.dimension}-d</Badge>
-            <Badge>{index.metric}</Badge>
-            <Badge>{structureLabel(index)}</Badge>
-            <Badge tone={index.status.state === "Ready" ? "good" : "warn"}>{index.status.state}</Badge>
-          </div>
-        </div>
-      </header>
+      <PageHeader eyebrow={crumbs} title={index.name}
+        subtitle={<>{index.dimension} dimensions · {index.metric} · {structureLabel(index)}</>}
+        actions={<Badge tone={ready ? "good" : "warn"} dot>{ready ? "Ready" : "Rebuilding graph"}</Badge>}>
+      </PageHeader>
 
       <nav className="tabs" aria-label="Index sections">
-        {TABS.map(([id, label]) => (
-          <a key={id} href={`#/indexes/${encodeURIComponent(name)}/${id}`} className={tab === id ? "active" : ""}
-            aria-current={tab === id ? "page" : undefined}>{label}</a>
+        {tabs.map(([id, label]) => (
+          <a key={id} href={`#/indexes/${encodeURIComponent(name)}/${id}`} className={current === id ? "active" : ""}
+            aria-current={current === id ? "page" : undefined}>{label}</a>
         ))}
       </nav>
 
       {/* Panels stay mounted so a half-written query survives switching tabs. */}
-      <div hidden={tab !== "overview"} className="stack"><IndexOverview info={index} stats={stats.data} /></div>
-      <div hidden={tab !== "query"}><QueryPanel info={index} namespaces={namespaces} params={params} active={tab === "query"} /></div>
-      <div hidden={tab !== "browse"}><BrowsePanel info={index} namespaces={namespaces} active={tab === "browse"} onChanged={refresh} /></div>
-      <div hidden={tab !== "upsert"}><UpsertPanel info={index} namespaces={namespaces} onDone={refresh} /></div>
-      <div hidden={tab !== "settings"} className="stack">
-        <SettingsPanel key={index.hnsw.ef_search} info={index} onSaved={(next) => { info.setData(next); onChanged(); }} onDeleted={onDeleted} />
-      </div>
+      <div hidden={current !== "overview"} className="stack"><IndexOverview info={index} stats={stats.data} /></div>
+      <div hidden={current !== "query"}><QueryPanel info={index} namespaces={namespaces} params={params} active={current === "query"} /></div>
+      <div hidden={current !== "browse"}><BrowsePanel info={index} namespaces={namespaces} active={current === "browse"} onChanged={refresh} /></div>
+      {can("write") && <div hidden={current !== "upsert"}><UpsertPanel info={index} namespaces={namespaces} onDone={refresh} /></div>}
+      {can("admin") && (
+        <div hidden={current !== "settings"} className="stack">
+          <SettingsPanel key={index.hnsw.ef_search} info={index}
+            onSaved={(next) => { info.setData(next); onChanged(); }}
+            onDeleted={() => { onChanged(); go("/indexes"); }} />
+        </div>
+      )}
     </>
   );
 }
 
 function IndexOverview({ info, stats }: { info: IndexInfo; stats?: IndexStats }) {
+  const [lang, setLang] = useState<"python" | "pinecone" | "curl">("python");
   const namespaces = Object.entries(stats?.namespaces ?? {});
-  const origin = window.location.origin;
-  const python = `from needledb import NeedleDB
+  const snippets = {
+    python: `from needledb import NeedleDB
 
-db = NeedleDB("${origin}", api_key="…")
+db = NeedleDB("${window.location.origin}", api_key=NEEDLEDB_API_KEY)
 index = db.Index("${info.name}")
 
-index.upsert([("doc-1", embedding, {"lang": "en"})])
-index.query(vector=embedding, top_k=10, filter={"lang": "en"}, include_metadata=True)`;
+index.upsert([("doc-1", embedding, {"title": "Hello"})])
+res = index.query(vector=embedding, top_k=10, include_metadata=True)`,
+    pinecone: `from pinecone import Pinecone
+
+pc = Pinecone(api_key=NEEDLEDB_API_KEY)
+index = pc.Index(host="${info.host}")
+
+res = index.query(vector=embedding, top_k=10, include_metadata=True)`,
+    curl: `curl ${info.host}/query \\
+  -H "Api-Key: $NEEDLEDB_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"vector": [...], "topK": 10, "includeMetadata": true}'`,
+  };
 
   return (
     <>
-      <div className="tiles">
-        <Tile label="Vectors" value={fmtInt(info.vectorCount)} hint={`${info.namespaceCount} ${info.namespaceCount === 1 ? "namespace" : "namespaces"}`} />
-        <Tile label="Memory" value={fmtBytes(info.memoryBytes)} hint="estimated" />
-        <Tile label="On disk" value={fmtBytes(info.storageBytes)} />
-        <Tile label="ef_search" value={info.hnsw.ef_search} hint="default query width" />
+      <div className="stats">
+        <Stat icon={<IconIndexes size={16} />} label="Vectors" value={fmtInt(info.vectorCount)}
+          hint={`${info.namespaceCount} ${info.namespaceCount === 1 ? "namespace" : "namespaces"}`} />
+        <Stat icon={<IconChip size={16} />} label="Memory" value={fmtBytes(info.memoryBytes)} hint="Vectors and graph links" />
+        <Stat icon={<IconDisk size={16} />} label="On disk" value={fmtBytes(info.storageBytes)} hint="Durable log and records" />
+        <Stat icon={<IconGauge size={16} />} label="Search width" value={info.hnsw.ef_search} hint="Default ef_search" />
       </div>
 
       <div className="grid-2">
-        <Panel title="Namespaces">
+        <Card title="Namespaces" subtitle="Partitions inside this index" flush>
           {namespaces.length ? (
             <div className="table-wrap">
-              <table>
-                <thead><tr><th>Namespace</th><th className="num">Vectors</th><th>Structure</th><th className="num">Tombstones</th><th>State</th></tr></thead>
+              <table className="table">
+                <thead><tr><th>Namespace</th><th className="num">Vectors</th><th>Structure</th><th className="num">Tombstones</th><th /></tr></thead>
                 <tbody>
                   {namespaces.map(([ns, s]) => (
                     <tr key={ns}>
-                      <td className="mono">{ns === "" ? <span className="muted">(default)</span> : ns}</td>
+                      <td>{ns === "" ? <span className="muted">Default</span> : <span className="mono">{ns}</span>}</td>
                       <td className="num">{fmtInt(s.vectorCount)}</td>
-                      <td>{s.indexType === "hnsw" ? "HNSW" : "Flat"}</td>
+                      <td>{s.indexType === "hnsw" ? "HNSW graph" : "Flat, exact"}</td>
                       <td className="num">{fmtInt(s.tombstones)}</td>
-                      <td><Badge tone={s.building ? "warn" : "good"}>{s.building ? "Rebuilding" : "Ready"}</Badge></td>
+                      <td className="num">{s.building ? <Badge tone="warn" dot>Rebuilding</Badge> : <Badge tone="good" dot>Ready</Badge>}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <Empty title="No vectors yet" action={<a className="btn btn-primary" href={`#/indexes/${encodeURIComponent(info.name)}/upsert`}>Upsert vectors</a>}>
-              Namespaces appear when you write to them.
-            </Empty>
+            <Empty title="No vectors yet">Namespaces appear as soon as you write to them.</Empty>
           )}
-        </Panel>
+        </Card>
 
-        <Panel title="Configuration">
+        <Card title="Configuration">
           <dl className="kv">
             <dt>Dimension</dt><dd>{info.dimension}</dd>
-            <dt>Metric</dt><dd>{info.metric}{info.metric === "euclidean" ? " (squared L2, lower is closer)" : ""}</dd>
+            <dt>Metric</dt><dd>{info.metric}{info.metric === "euclidean" ? " — squared distance, lower is closer" : ""}</dd>
             <dt>Structure</dt><dd>{info.index_type}</dd>
-            <dt>HNSW</dt><dd className="mono">m={info.hnsw.m} ef_construction={info.hnsw.ef_construction} ef_search={info.hnsw.ef_search}</dd>
+            <dt>HNSW</dt><dd className="mono">m {info.hnsw.m} · ef_construction {info.hnsw.ef_construction} · ef_search {info.hnsw.ef_search}</dd>
             <dt>Created</dt><dd>{new Date(info.created_at).toLocaleString()}</dd>
             <dt>Host</dt><dd className="mono">{info.host}</dd>
           </dl>
-        </Panel>
+        </Card>
       </div>
 
-      <Panel title="Connect" note="Python SDK — the official Pinecone client also works against the host above" actions={<CopyButton text={python} />}>
-        <pre className="code panel-code">{python}</pre>
-      </Panel>
+      <Card title="Connect" subtitle="Use the NeedleDB SDK, the official Pinecone client, or plain HTTP."
+        actions={<CopyButton text={snippets[lang]} />}>
+        <div className="stack tight">
+          <Choice label="Language" value={lang} onChange={setLang} options={[
+            { value: "python", label: "NeedleDB SDK" },
+            { value: "pinecone", label: "Pinecone client" },
+            { value: "curl", label: "cURL" },
+          ]} />
+          <pre className="code">{snippets[lang]}</pre>
+        </div>
+      </Card>
     </>
   );
 }
 
-function SettingsPanel({ info, onSaved, onDeleted }: {
-  info: IndexInfo;
-  onSaved: (info: IndexInfo) => void;
-  onDeleted: () => void;
-}) {
-  const [ef, setEf] = useState(String(info.hnsw.ef_search));
+function SettingsPanel({ info, onSaved, onDeleted }: { info: IndexInfo; onSaved: (info: IndexInfo) => void; onDeleted: () => void }) {
+  const toast = useToast();
+  const [ef, setEf] = useState(info.hnsw.ef_search);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [confirm, setConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
 
@@ -158,9 +180,10 @@ function SettingsPanel({ info, onSaved, onDeleted }: {
     setSaving(true);
     setError(undefined);
     try {
-      onSaved(await api.configure(info.name, Number(ef)));
+      onSaved(await api.configure(info.name, ef));
+      toast(`Search width set to ${ef}`, "good");
     } catch (err) {
-      setError(err as Error);
+      setError((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -168,46 +191,50 @@ function SettingsPanel({ info, onSaved, onDeleted }: {
 
   async function remove() {
     setDeleting(true);
-    setError(undefined);
     try {
       await api.deleteIndex(info.name);
+      toast(`Deleted ${info.name}`);
       onDeleted();
     } catch (err) {
-      setError(err as Error);
+      setError((err as Error).message);
       setDeleting(false);
     }
   }
 
   return (
     <>
-      <Panel title="Search width">
-        <div className="form-stack narrow">
-          <Field label="Default ef_search" htmlFor="ef-search"
-            hint="How many graph candidates each query explores. Higher finds more of the true nearest neighbours and costs latency. Takes effect on the next query; a query's own efSearch overrides it.">
-            <input id="ef-search" type="number" min={1} max={10000} value={ef} onChange={(e) => setEf(e.target.value)} />
-          </Field>
-          <div className="row-end">
-            <Button variant="primary" onClick={save} disabled={saving || Number(ef) === info.hnsw.ef_search}>{saving ? "Saving…" : "Save"}</Button>
+      <Card title="Search width" subtitle="How many graph candidates each query explores. Wider finds more of the true nearest neighbours and takes longer.">
+        <div className="form narrow">
+          <div className="range-row">
+            <input type="range" min={8} max={1024} step={8} value={Math.min(ef, 1024)} aria-label="ef_search"
+              onChange={(e) => setEf(Number(e.target.value))} />
+            <input type="number" min={1} max={10000} value={ef} className="range-number" aria-label="ef_search value"
+              onChange={(e) => setEf(Number(e.target.value))} />
+          </div>
+          <div className="range-scale"><span>Faster</span><span>More accurate</span></div>
+          <p className="muted small">Applies to the next query. A request's own <code>efSearch</code> overrides it.</p>
+          <ErrorNote error={error} />
+          <div className="actions-end">
+            <Button variant="primary" onClick={save} disabled={saving || ef === info.hnsw.ef_search || ef < 1}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
           </div>
         </div>
-      </Panel>
-      <ErrorNote error={error} />
-      <Panel title="Delete index" className="danger">
-        <div className="form-stack narrow">
-          <p className="muted">
-            Removes every vector and namespace in <b className="mono">{info.name}</b> from disk. This can’t be undone.
-          </p>
-          <Field label={`Type ${info.name} to confirm`} htmlFor="confirm-delete">
-            <input id="confirm-delete" className="mono" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" />
+      </Card>
+
+      <Card title="Delete index" className="card-danger"
+        subtitle={<>Removes every vector and namespace in <b>{info.name}</b> from disk. This can't be undone.</>}>
+        <div className="form narrow">
+          <Field label={`Type “${info.name}” to confirm`} htmlFor="confirm-delete">
+            <input id="confirm-delete" className="mono" value={confirm} autoComplete="off" onChange={(e) => setConfirm(e.target.value)} />
           </Field>
-          <div className="row-end">
-            <Button variant="danger" className="armed" disabled={confirm !== info.name || deleting} onClick={remove}>
+          <div className="actions-end">
+            <Button variant="danger-solid" icon={<IconTrash size={16} />} disabled={confirm !== info.name || deleting} onClick={remove}>
               {deleting ? "Deleting…" : "Delete index"}
             </Button>
           </div>
         </div>
-      </Panel>
-      <div className="row-end"><Button variant="ghost" onClick={() => go("/indexes")}>Back to indexes</Button></div>
+      </Card>
     </>
   );
 }

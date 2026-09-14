@@ -18,9 +18,12 @@ directly in your Python process with no server at all.
   an exact scan of the matches and wide filters with filtered HNSW and a widened beam.
 - **Durable**: every write commits to a SQLite WAL before it is acknowledged. Snapshots of the
   FAISS index make restarts fast, and a crash replays only the writes after the last snapshot.
+- **Secure by default**: scoped API keys (read / write / admin, optionally per index), stored
+  only as hashes; web-app sign-in with signed HttpOnly SameSite=Strict sessions; brute-force
+  lockout, CSRF refusal, CSP and security headers; no unauthenticated access except on localhost.
 - **Operable**:
-  - a dashboard to create, query, browse and upsert, with live QPS and p50/p99;
-  - Prometheus `/metrics`, API-key auth, OpenAPI docs at `/docs`;
+  - a web app at `/app` to query, browse, upsert, manage keys and review security, with live QPS and p50/p99;
+  - Prometheus `/metrics`, OpenAPI docs at `/docs`, built-in TLS or proxy support;
   - a Docker image.
 - **Benchmarked honestly** against raw FAISS, Qdrant and pgvector on real OpenAI embeddings.
   Recall is always reported next to speed. See [bench/REPORT.md](bench/REPORT.md).
@@ -29,8 +32,9 @@ directly in your Python process with no server at all.
 
 ```bash
 pip install -e .                      # Python 3.11–3.13
-needledb serve --api-key "$(openssl rand -hex 24)"
-# API http://127.0.0.1:8080 · dashboard http://127.0.0.1:8080/ui/ · docs /docs
+export NEEDLEDB_API_KEY=$(openssl rand -hex 32)   # an admin key — keep it secret
+needledb serve
+# App http://127.0.0.1:8080/app/ · API http://127.0.0.1:8080 · docs /docs (sign in first)
 ```
 
 Or with Docker:
@@ -40,7 +44,8 @@ export NEEDLEDB_API_KEY=$(openssl rand -hex 24)
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-For local experiments without a key: `needledb serve --no-auth` (binds to 127.0.0.1).
+For local experiments without a key: `needledb serve --no-auth`. The server refuses that on any
+address other than localhost.
 
 ## Python SDK
 
@@ -95,8 +100,9 @@ index.query(vector=embedding, top_k=10, include_metadata=True)
 
 ## REST API
 
-Every route except `/health` needs `Api-Key: <key>` (or `Authorization: Bearer <key>`).
-Errors are `{"error": {"code": "INVALID_ARGUMENT" | "NOT_FOUND" | "ALREADY_EXISTS" | "UNAUTHENTICATED" | "INTERNAL", "message": "…"}}`.
+Every route except `/health` needs `Api-Key: <key>` (or `Authorization: Bearer <key>`), or the
+web app's session. Errors are
+`{"error": {"code": "INVALID_ARGUMENT" | "UNAUTHENTICATED" | "PERMISSION_DENIED" | "NOT_FOUND" | "ALREADY_EXISTS" | "PAYLOAD_TOO_LARGE" | "RESOURCE_EXHAUSTED" | "INTERNAL", "message": "…"}}`.
 
 | Method | Path | Body → result |
 |---|---|---|
@@ -112,6 +118,8 @@ Errors are `{"error": {"code": "INVALID_ARGUMENT" | "NOT_FOUND" | "ALREADY_EXIST
 | `GET` | `/indexes/{name}/vectors/list` | `?prefix&limit&paginationToken&namespace` |
 | `POST` | `/indexes/{name}/describe_index_stats` | `{filter?}` |
 | `GET` | `/health` · `/stats` · `/metrics` | liveness · dashboard JSON · Prometheus |
+| `GET`/`POST`/`DELETE` | `/keys` · `/keys/{id}` | list, create (`{name, role, indexes?}` → the key, once), revoke — admin |
+| `POST` | `/auth/login` · `/auth/logout` · `/auth/sessions/revoke-all` | web-app sessions |
 
 ```bash
 curl -s localhost:8080/indexes/products/query -H "Api-Key: $KEY" -H "Content-Type: application/json" \
@@ -136,17 +144,47 @@ The HNSW settings are `m` (default 32), `ef_construction` (200) and `ef_search` 
 can change at any time, and per query with `efSearch`. Every query reports its `plan`:
 `exact`, `hnsw`, `filtered-exact` or `filtered-hnsw`.
 
-## Dashboard
+## Security
 
-`/ui/` has pages for:
-- **Overview:** vectors, memory, disk, live throughput and latency charts, per-index and per-route traffic.
-- **Indexes:** create an index with presets for common embedding sizes.
-- **Query:** paste a vector, generate one, or query by record id; build filters from fields seen in
-  results; read the plan and latency; copy the request as curl.
-- **Browse:** page through ids, inspect metadata and a colour strip of the vector, find similar
-  records, delete.
-- **Upsert:** paste JSON records, with validation against the index dimension.
-- **Settings:** tune `ef_search`, delete the index.
+- **API keys.** `NEEDLEDB_API_KEY` holds bootstrap admin keys. Admins create more under **API Keys**
+  in the app, with `db.create_key(...)`, or with `needledb keys create --name ci --role read --index products`.
+  - Roles: `read` lets a key query, fetch, list and read stats; `write` adds upsert, update and
+    delete; `admin` adds indexes and key management.
+  - Index scope: read and write keys can be limited to named indexes. Other indexes look absent to them.
+  - Storage: keys are shown once and stored only as SHA-256 digests. Revoking a key takes effect immediately.
+- **Web app sessions.** Signing in exchanges a key for a signed, HttpOnly, SameSite=Strict cookie that
+  names the key (never contains it) and lasts 12 hours.
+  - Cookie-authenticated writes from other origins are refused.
+  - Revoking a key ends its sessions, and **Sign out everywhere** rotates the signing secret.
+- **Brute force.** 10 failed attempts in 5 minutes block that client for 5 minutes, on both the API and the sign-in page.
+- **Hardening.**
+  - Every response carries a Content Security Policy for the app, plus frame blocking, `nosniff`, no referrers and `no-store`.
+  - Bodies over 64 MB are refused (`NEEDLEDB_MAX_BODY_MB`).
+  - `/docs` requires sign-in.
+  - HSTS is sent over HTTPS.
+- **Transport.** Serve over HTTPS in production: `needledb serve --tls-cert cert.pem --tls-key key.pem`,
+  or run behind Caddy or nginx with `--trust-proxy` (`NEEDLEDB_TRUST_PROXY=1`), so client addresses
+  and the scheme come from the proxy. The server warns when it binds publicly over plain HTTP, and
+  refuses `--no-auth` on anything but localhost.
+
+## Web app
+
+`/app/` opens on a sign-in screen, then has pages for:
+- **Overview:** vectors, queries per second, p99 and memory with sparklines; live throughput and
+  latency charts; index cards; per-route traffic.
+- **Indexes:** cards for every index you can access, and a create sheet with presets for common
+  embedding models.
+- **Query:** search by stored record or vector. Results show the record's title, similarity,
+  metadata, server and round-trip latency, and the plan. Filters can be built from fields seen in
+  results, and the request copies as cURL.
+- **Browse:** page through records by title, inspect metadata and a colour strip of the vector, find
+  similar records, delete.
+- **Upsert and Settings:** paste validated JSON records; tune `ef_search` with a slider; delete an index.
+- **API Keys and Security:** create scoped keys (shown once) and revoke them; review every
+  protection active on your connection; end all sessions.
+- **⌘K:** jump to any index, page or action.
+
+`/ui` redirects to `/app/`.
 
 ## How it works
 
@@ -174,9 +212,12 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design.
 
 | Variable | Default | |
 |---|---|---|
-| `NEEDLEDB_API_KEY` | — | comma-separated accepted keys; required unless `NEEDLEDB_ALLOW_NO_AUTH=1` |
-| `NEEDLEDB_DATA` | `./data` | data directory (one server process per directory) |
+| `NEEDLEDB_API_KEY` | — | comma-separated admin keys; required unless managed keys exist or auth is off on localhost |
+| `NEEDLEDB_DATA` | `./data` | data directory (one server process per directory; keys live in `_system/`) |
 | `NEEDLEDB_HOST` / `NEEDLEDB_PORT` | `127.0.0.1` / `8080` | |
+| `NEEDLEDB_TRUST_PROXY` | off | trust `X-Forwarded-For/Proto/Host` from a TLS proxy |
+| `NEEDLEDB_SESSION_SECRET` | generated | pin the session signing secret (otherwise `_system/session.key`, mode 600) |
+| `NEEDLEDB_MAX_BODY_MB` | `64` | largest accepted request body |
 | `NEEDLEDB_SNAPSHOT_EVERY` | `50000` | writes between automatic snapshots |
 
 ## Development
@@ -184,7 +225,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design.
 ```bash
 uv venv && uv pip install -e ".[dev,bench]"
 pytest                                   # engine, filters (property-tested), API, both SDKs, Pinecone client
-npm --prefix ui install && npm --prefix ui run dev     # dashboard on :5173, proxied to :8080
+npm --prefix ui install && npm --prefix ui run dev     # web app on :5173/app/, proxied to :8080
 npm --prefix ui run build                # outputs to needledb/server/static
 ```
 
@@ -194,7 +235,7 @@ This is 0.1:
 - one node;
 - vectors held in RAM (float32);
 - no sparse vectors;
-- no RBAC beyond API keys.
+- access control is key-based (roles and index scopes), with no SSO yet.
 
 Next:
 - quantized indexes (SQ8/PQ/IVF-PQ) for memory-bound collections;
