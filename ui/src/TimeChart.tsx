@@ -24,6 +24,7 @@ export function TimeChart({ times, series, format, height = 176, empty = "No tra
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    setWidth(Math.max(240, Math.floor(el.getBoundingClientRect().width)));
     const observer = new ResizeObserver((entries) => setWidth(Math.max(240, Math.floor(entries[0].contentRect.width))));
     observer.observe(el);
     return () => observer.disconnect();
@@ -68,7 +69,7 @@ export function TimeChart({ times, series, format, height = 176, empty = "No tra
           <span key={s.name}><i style={{ background: s.color }} />{s.name}</span>
         ))}
       </div>
-      <svg width={width} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" onMouseMove={onMove} onMouseLeave={() => setHover(null)}
         role="img" aria-label={`${series.map((s) => s.name).join(" and ")} over time`}>
         {ticks.map((t, i) => (
           <g key={i}>
