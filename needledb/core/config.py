@@ -1,0 +1,89 @@
+"""Index configuration, limits and the error types every layer shares."""
+from __future__ import annotations
+
+import re
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+
+from ..errors import AlreadyExists, InvalidArgument, NeedleError, NotFound  # noqa: F401
+
+METRICS = ("cosine", "dotproduct", "euclidean")
+INDEX_TYPES = ("auto", "flat", "hnsw")
+
+MAX_DIMENSION = 65_536
+MAX_ID_BYTES = 512
+MAX_METADATA_BYTES = 40_000
+MAX_TOP_K = 10_000
+MAX_UPSERT_BATCH = 10_000
+
+# `auto` indexes search exactly until this many live vectors, then build HNSW.
+AUTO_HNSW_THRESHOLD = 20_000
+# Filtered queries with at most this many candidates are answered exactly.
+BRUTE_FORCE_LIMIT = 5_000
+BRUTE_FORCE_FRACTION = 0.02
+
+_NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$")
+
+
+@dataclass
+class HNSWConfig:
+    m: int = 32
+    ef_construction: int = 200
+    ef_search: int = 128
+
+    def validate(self) -> None:
+        if not 4 <= self.m <= 128:
+            raise InvalidArgument("hnsw.m must be between 4 and 128")
+        if not 16 <= self.ef_construction <= 2000:
+            raise InvalidArgument("hnsw.ef_construction must be between 16 and 2000")
+        if not 1 <= self.ef_search <= 10_000:
+            raise InvalidArgument("hnsw.ef_search must be between 1 and 10000")
+
+
+@dataclass
+class IndexConfig:
+    name: str
+    dimension: int
+    metric: str = "cosine"
+    index_type: str = "auto"
+    hnsw: HNSWConfig = field(default_factory=HNSWConfig)
+    created_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds"))
+
+    def validate(self) -> "IndexConfig":
+        if not isinstance(self.name, str) or not _NAME_RE.match(self.name):
+            raise InvalidArgument(
+                "index name must be 1-45 characters of lowercase letters, digits and "
+                "hyphens, starting and ending with a letter or digit")
+        if not isinstance(self.dimension, int) or isinstance(self.dimension, bool) \
+                or not 1 <= self.dimension <= MAX_DIMENSION:
+            raise InvalidArgument(f"dimension must be an integer from 1 to {MAX_DIMENSION}")
+        if self.metric not in METRICS:
+            raise InvalidArgument(f"metric must be one of {', '.join(METRICS)}")
+        if self.index_type not in INDEX_TYPES:
+            raise InvalidArgument(f"index_type must be one of {', '.join(INDEX_TYPES)}")
+        self.hnsw.validate()
+        return self
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "IndexConfig":
+        hnsw = data.get("hnsw") or {}
+        if not isinstance(hnsw, dict):
+            raise InvalidArgument("hnsw must be an object")
+        known = {"m", "ef_construction", "ef_search"}
+        unknown = set(hnsw) - known
+        if unknown:
+            raise InvalidArgument(f"unknown hnsw fields: {', '.join(sorted(unknown))}")
+        cfg = cls(
+            name=data.get("name"),
+            dimension=data.get("dimension"),
+            metric=data.get("metric") or "cosine",
+            index_type=data.get("index_type") or "auto",
+            hnsw=HNSWConfig(**hnsw),
+        )
+        if data.get("created_at"):
+            cfg.created_at = data["created_at"]
+        return cfg

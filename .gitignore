@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+*.egg-info/
+dist/
+build/
+ui/node_modules/
+ui/dist/
+needledb/server/static/
+bench/data/
+.DS_Store

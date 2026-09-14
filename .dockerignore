@@ -1,0 +1,13 @@
+.git
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+data
+bench/data
+bench/results
+ui/node_modules
+ui/dist
+needledb/server/static
+tests
+docs

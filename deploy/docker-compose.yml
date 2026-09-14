@@ -1,0 +1,22 @@
+# docker compose -f deploy/docker-compose.yml up -d
+# Then open http://localhost:8080/ui/ and paste your key.
+services:
+  needledb:
+    build:
+      context: ..
+    image: needledb:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      NEEDLEDB_API_KEY: ${NEEDLEDB_API_KEY:?set NEEDLEDB_API_KEY to a long random string}
+      NEEDLEDB_SNAPSHOT_EVERY: "50000"
+    volumes:
+      - needledb-data:/data
+    # FAISS is multi-threaded; give it the cores and memory you want it to use.
+    # deploy:
+    #   resources:
+    #     limits: { cpus: "4", memory: 8g }
+
+volumes:
+  needledb-data:
