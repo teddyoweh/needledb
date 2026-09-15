@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 
 _CGROUP_V2 = Path("/sys/fs/cgroup/cpu.max")
+_CGROUP_MEM_V2 = Path("/sys/fs/cgroup/memory.max")
+_CGROUP_MEM_V1 = Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")
 _CGROUP_V1 = (Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"), Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us"))
 
 
@@ -82,3 +84,26 @@ def release_free_memory() -> None:
         _libc.malloc_trim(0)
     except (OSError, AttributeError):
         _libc = False
+
+
+def memory_limit() -> int:
+    """Bytes this process may use: the container's limit where there is one, else the machine's."""
+    override = os.environ.get("NEEDLEDB_MEMORY")
+    if override:
+        try:
+            return max(1, int(float(override) * 2 ** 30))      # given in GiB
+        except ValueError:
+            pass
+    for path in (_CGROUP_MEM_V2, _CGROUP_MEM_V1):
+        try:
+            value = path.read_text().strip()
+            if value not in ("max", "") and 0 < int(value) < 2 ** 62:
+                return int(value)
+        except (OSError, ValueError):
+            continue
+    try:
+        import psutil
+
+        return int(psutil.virtual_memory().total)
+    except Exception:  # noqa: BLE001 — a missing psutil must not stop a load
+        return 8 * 2 ** 30

@@ -38,7 +38,7 @@ from .config import (
     InvalidArgument,
     NotFound,
 )
-from .cpu import release_free_memory
+from .cpu import memory_limit, release_free_memory
 from .filters import MetadataIndex
 from .rwlock import RWLock
 
@@ -48,8 +48,14 @@ _EXACT_CHUNK = 4_096
 # Storage moves between fp16 and float32 in chunks this size, and only above this many vectors.
 _RETYPE_CHUNK = 16_384
 _RETYPE_MIN = 4_096
-# An incoming batch at least this large is worth widening back to float32 to link.
+# An incoming batch at least this large, and this big a share of the index, is worth
+# widening back to float32 to link: widening doubles the vectors' memory for the duration,
+# which is fine for a reload and wasteful for a trickle into a large index.
 _WIDEN_BATCH = 2_000
+_WIDEN_SHARE = 0.2
+# Linking on float32 costs twice the vector memory. Past this share of the memory limit an
+# index stops paying that and links in fp16 instead: slower per vector, but it fits.
+_BUILD_MEMORY_SHARE = 0.4
 
 
 def _kmeans(x: np.ndarray, k: int, rng: np.random.Generator, iters: int = 30) -> np.ndarray:
@@ -155,10 +161,10 @@ class Collection:
     # ---- writes (caller holds the write lock) ---------------------------------------
 
     def apply_upsert(self, ids: list[str], values: np.ndarray, metas: list[dict | None]) -> None:
-        self._widen_for(len(ids))
         """Insert or overwrite records. `values` are the original vectors (count x d)."""
         if not ids:
             return
+        self._widen_for(len(ids))
         if self._ops is not None:
             self._ops.append(("upsert", ids, values, metas))
         last = {rid: i for i, rid in enumerate(ids)}          # last occurrence wins
@@ -183,7 +189,6 @@ class Collection:
         self._norm[start:start + count] = norms
         self._tomb[start:start + count] = False
         self._ann.add(np.ascontiguousarray(stored, dtype=np.float32))
-        self._last_write = time.monotonic()      # a batch can take seconds; quiet starts now
         for offset, rid in enumerate(ids):
             slot = start + offset
             self.slot_ids.append(rid)
@@ -191,6 +196,10 @@ class Collection:
             self.meta.add(slot, metas[offset])
         self.n += count
         self.live += count
+        # Only once the new vectors are accounted for: retyping reads n.
+        if not self._half and self._too_big_for_float32():
+            self._retype(True)                   # a load past the budget keeps going in fp16
+        self._last_write = time.monotonic()      # a batch can take seconds; quiet starts now
         self._maybe_rebuild()
 
     def apply_set_metadata(self, rid: str, set_metadata: dict) -> None:
@@ -272,6 +281,12 @@ class Collection:
         self._search_params = {}
         release_free_memory()          # the old storage was hundreds of MB; give it back
 
+    def _float32_budget(self) -> int:
+        return int(memory_limit() * _BUILD_MEMORY_SHARE)
+
+    def _too_big_for_float32(self, extra: int = 0) -> bool:
+        return self.cfg.half_precision and (self.n + extra) * self.d * 4 > self._float32_budget()
+
     def compact_storage(self, quiet_for: float = 0.0) -> None:
         """Serve from fp16 once a load has settled. Safe to call at any time.
 
@@ -285,9 +300,13 @@ class Collection:
                 self._retype(True)
 
     def _widen_for(self, incoming: int) -> None:
-        """Big loads link much faster against float32 vectors; snapshotting puts fp16 back.
-        The caller holds the write lock."""
-        if self._half and incoming >= _WIDEN_BATCH:
+        """Big loads link much faster against float32 vectors; settling puts fp16 back.
+
+        Only a load that is large in its own right *and* large next to what is already here
+        is worth it: a 5,000-record top-up into a million-vector index would otherwise double
+        that index's memory to save a second of linking. The caller holds the write lock."""
+        if (self._half and incoming >= _WIDEN_BATCH and incoming >= _WIDEN_SHARE * self.n
+                and not self._too_big_for_float32(incoming)):
             self._retype(False)
 
     # ---- background rebuild: flat -> HNSW, and compaction ----------------------------

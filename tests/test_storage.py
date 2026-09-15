@@ -63,12 +63,17 @@ def test_filters_and_writes_survive_the_switch(loaded):
     assert index.delete(ids=["0"]) == 1
     assert index.fetch(["0"])["vectors"] == {}
 
-    big = clustered(2_500, D, seed=4)                        # a big load links on float32 again
+    big = clustered(6_000, D, seed=4)                        # a reload links on float32 again
     index.upsert([{"id": f"b{i}", "values": v} for i, v in enumerate(big)])
     assert index.summary()["storage"] == "float32"
     index.wait_for_index()
     assert index.summary()["storage"] == "fp16"
     assert index.query(vector=big[9], top_k=1)["matches"][0]["id"] == "b9"
+
+    top_up = clustered(2_100, D, seed=5)                     # a top-up into 12,000 stays on fp16:
+    index.upsert([{"id": f"t{i}", "values": v} for i, v in enumerate(top_up)])   # widening would
+    assert index.summary()["storage"] == "fp16"                                  # double its memory
+    assert index.query(vector=top_up[3], top_k=1)["matches"][0]["id"] == "t3"
 
 
 def test_snapshots_reload_as_fp16(tmp_path, registry, loaded):
