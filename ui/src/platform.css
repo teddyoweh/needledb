@@ -712,3 +712,49 @@ select.cmp-topk { width: auto; height: 32px; margin-left: auto; padding-top: 0; 
   .provider-row { grid-template-columns: auto minmax(0, 1fr); }
   .provider-actions { grid-column: 2; justify-content: flex-start; }
 }
+
+/* ---- benchmarks page ------------------------------------------------------------------------------------ */
+
+.docs-content .bench-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.bench-lede { color: var(--ink-2); }
+.bench-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr)); gap: 10px; }
+.bench-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 14px 12px; background: var(--fill); border-radius: 14px; }
+.bench-card-title { color: var(--ink-3); font-size: 12.5px; line-height: 1.35; }
+.bench-card-value { color: var(--ink); font-size: 24px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.bench-vs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.vs { display: inline-flex; align-items: center; height: 21px; padding: 0 7px; border-radius: 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.vs-win { background: var(--good-soft); color: var(--good); }
+.vs-loss { background: var(--bad-soft); color: var(--bad); }
+.vs-even { background: var(--card); color: var(--ink-3); }
+
+.docs-content .bench-bar-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); gap: 14px; }
+.bench-bars { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 14px; background: var(--fill); border-radius: 14px; }
+.bench-bars figcaption { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.bench-bars figcaption b { font-size: 13.5px; }
+.bench-bars figcaption span { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; }
+.bench-bar { display: grid; grid-template-columns: 124px minmax(0, 1fr) 70px; align-items: center; gap: 8px; font-size: 12px; line-height: 1.3; }
+.bench-bar-name { overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
+.bench-bar-track { height: 10px; overflow: hidden; background: var(--card); border-radius: 999px; }
+.bench-bar-track i { display: block; height: 100%; border-radius: 999px; }
+.bench-bar-value { color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+.bench-bar.ours .bench-bar-name, .bench-bar.ours .bench-bar-value { color: var(--ink); font-weight: 600; }
+
+.bench-chart { margin: 0; padding: 14px 14px 10px; background: var(--fill); border-radius: 14px; }
+.bench-chart-scroll { overflow-x: auto; }
+.bench-chart svg { display: block; width: 100%; min-width: 520px; height: auto; }
+.bench-grid { stroke: var(--fill-3); stroke-width: 1; }
+.bench-grid.target { stroke: var(--ink-4); stroke-dasharray: 4 4; }
+.bench-axis { fill: var(--ink-3); font: 11px var(--font); font-variant-numeric: tabular-nums; }
+.bench-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: var(--ink-2); font-size: 12px; }
+.bench-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.bench-legend i, .bench-name i { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 3px; }
+.bench-name { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.bench-cell { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bench-cell.low b { color: var(--bad); }
+.docs-content .bench-behind li + li { margin-top: 10px; }
+.bench-next { display: block; margin-top: 2px; color: var(--ink-3); font-size: 14px; }
+
+@media (max-width: 600px) {
+  .bench-bar { grid-template-columns: 92px minmax(0, 1fr) 62px; }
+}
+.bench-table .doc-table th, .bench-table .doc-table td { white-space: nowrap; }

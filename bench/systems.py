@@ -85,6 +85,11 @@ class System:
         """A search callable safe to use from one extra thread."""
         return self.search
 
+    def client_spec(self) -> tuple[str, dict] | None:
+        """For networked systems: how a separate client process connects (see make_worker).
+        None for in-process engines, which are measured with threads."""
+        return None
+
     def memory_bytes(self) -> int | None:
         return docker_memory(self.container) if self.container else None
 
@@ -261,6 +266,9 @@ class NeedleHTTP(System):
         http = self._client()
         return lambda q, k, flt=None: self.search(q, k, flt, http)
 
+    def client_spec(self):
+        return "needledb", {"url": self.url, "api_key": self.api_key, "ef": self.ef}
+
     def memory_bytes(self):
         if self.proc is not None:
             import psutil
@@ -269,7 +277,7 @@ class NeedleHTTP(System):
 
     def info(self):
         described = self.http.get(f"/indexes/{COLLECTION}").json()
-        return {"needledb": self.http.get("/health").json()["version"], "storageBytes": described["storageBytes"],
+        return {"needledb": self.http.get("/stats").json()["version"], "storageBytes": described["storageBytes"],
                 "url": self.url}
 
     def close(self):
@@ -327,6 +335,9 @@ class Qdrant(System):
             COLLECTION, query=q.tolist(), limit=k, with_payload=False,
             search_params=self.models.SearchParams(hnsw_ef=self.ef), query_filter=self._filter(flt))
         return [int(p.id) for p in res.points]
+
+    def client_spec(self):
+        return "qdrant", {"ef": self.ef}
 
     def info(self):
         try:
@@ -414,6 +425,9 @@ class PgVector(System):
         conn = self._connect()
         return lambda q, k, flt=None: self._search(conn, q, k, flt)
 
+    def client_spec(self):
+        return "pgvector", {"ef": self.ef, "vtype": self.vtype}
+
     def info(self):
         version = self.conn.execute("select extversion from pg_extension where extname = 'vector'").fetchone()[0]
         server = self.conn.execute("show server_version").fetchone()[0]
@@ -423,6 +437,29 @@ class PgVector(System):
     def close(self):
         self.conn.execute("drop table if exists items")
         self.conn.close()
+
+
+def make_worker(spec: tuple[str, dict]) -> Callable[[np.ndarray, int], list[int]]:
+    """Build a search callable inside a client process from a system's client_spec()."""
+    kind, params = spec
+    if kind == "needledb":
+        system = NeedleHTTP(url=params["url"], api_key=params["api_key"])
+        system.ef = params["ef"]
+        http = system._client()
+        return lambda q, k: system.search(q, k, None, http)
+    if kind == "qdrant":
+        from qdrant_client import QdrantClient, models
+
+        system = Qdrant.__new__(Qdrant)
+        system.models, system.ef = models, params["ef"]
+        system.client = QdrantClient(host="127.0.0.1", port=6333, grpc_port=6334, prefer_grpc=True, timeout=600)
+        return lambda q, k: system.search(q, k)
+    if kind == "pgvector":
+        system = PgVector.__new__(PgVector)
+        system.ef, system.vtype = params["ef"], params["vtype"]
+        conn = system._connect()
+        return lambda q, k: system._search(conn, q, k, None)
+    raise ValueError(f"unknown client kind {kind!r}")
 
 
 SYSTEMS: dict[str, Callable[[], System]] = {

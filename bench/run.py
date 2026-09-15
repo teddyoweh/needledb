@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import multiprocessing as mp
 import os
 import platform
 import subprocess
@@ -57,7 +58,54 @@ def measure(search, queries: np.ndarray, gt: np.ndarray) -> dict:
     }
 
 
-def throughput(system, queries: np.ndarray, threads: int, seconds: float) -> float:
+def throughput(system, queries: np.ndarray, clients: int, seconds: float) -> tuple[float, str]:
+    """Concurrent throughput. Networked systems get one client *process* per connection, so no
+    system is measured through a single Python interpreter's lock; in-process engines, which
+    can't be shared across processes, use threads."""
+    spec = system.client_spec()
+    if spec is None:
+        return _threaded(system, queries, clients, seconds), "threads"
+    return _processes(spec, queries, clients, seconds), "processes"
+
+
+def _client_process(spec, queries_path: str, offset: int, seconds: float, barrier, results) -> None:
+    from .systems import make_worker
+
+    search = make_worker(spec)
+    queries = np.load(queries_path)
+    for q in queries[:20]:                      # open the connection and warm up
+        search(q, K)
+    barrier.wait()
+    deadline, count, i = perf_counter() + seconds, 0, offset
+    while perf_counter() < deadline:
+        search(queries[i % len(queries)], K)
+        count += 1
+        i += 1
+    results.put(count)
+
+
+def _processes(spec, queries: np.ndarray, clients: int, seconds: float) -> float:
+    from .systems import TMP
+
+    TMP.mkdir(parents=True, exist_ok=True)
+    path = TMP / f"queries-{os.getpid()}.npy"
+    np.save(path, queries)
+    ctx = mp.get_context("spawn")
+    barrier, results = ctx.Barrier(clients), ctx.Queue()
+    procs = [ctx.Process(target=_client_process, args=(spec, str(path), j * 97, seconds, barrier, results))
+             for j in range(clients)]
+    try:
+        for p in procs:
+            p.start()
+        total = sum(results.get(timeout=seconds + 600) for _ in procs)
+        for p in procs:
+            p.join()
+    finally:
+        path.unlink(missing_ok=True)
+    return total / seconds
+
+
+def _threaded(system, queries: np.ndarray, threads: int, seconds: float) -> float:
     workers = [system.worker() for _ in range(threads)]
     counts = [0] * threads
     go = threading.Event()
@@ -122,9 +170,9 @@ def run_one(name: str, args) -> dict:
 
     operating = next((p for p in sweep if p["recall"] >= TARGET_RECALL), sweep[-1])
     system.set_ef(operating["ef"])
-    concurrent = throughput(system, queries, args.threads, args.seconds) if args.threads else None
+    concurrent, client_mode = throughput(system, queries, args.threads, args.seconds) if args.threads else (None, None)
     if concurrent:
-        log(f"{args.threads} clients at ef={operating['ef']}: {concurrent:.0f} qps")
+        log(f"{args.threads} clients ({client_mode}) at ef={operating['ef']}: {concurrent:.0f} qps")
 
     filtered = {}
     subset = queries[: args.filter_queries]
@@ -141,7 +189,7 @@ def run_one(name: str, args) -> dict:
         "system": name, "name": system.name, "transport": system.transport,
         "loadSeconds": load_s, "buildSeconds": build_s, "memoryBytes": memory,
         "sweep": sweep, "operatingPoint": operating, "concurrentQps": concurrent,
-        "threads": args.threads, "filtered": filtered, "info": info,
+        "threads": args.threads, "clientMode": client_mode, "filtered": filtered, "info": info,
         "finishedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 

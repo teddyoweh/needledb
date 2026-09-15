@@ -139,7 +139,11 @@ swept; the headline row for each system is the smallest value reaching 95% recal
 
 **Latency.** Single client, sequential, measured end to end by the benchmark process — in-process
 calls for the embedded engines, a real network round trip (with serialization) for servers.
-Concurrent throughput runs N client threads for 10 seconds.
+
+**Concurrency.** N clients for 10 seconds. Networked systems (NeedleDB server and Docker, Qdrant,
+pgvector) get one client *process* per connection, so no result is capped by a single Python
+interpreter's lock on the client side. In-process engines can't be shared across processes and
+use N threads.
 
 **Build.** Wall time from an empty index to every vector searchable through the index: all writes,
 the durable log (NeedleDB and Postgres), and graph construction.
@@ -156,13 +160,14 @@ matching subset when small, otherwise filtered HNSW with a widened beam).
 - Docker services run in the same Docker Desktop VM with identical CPU and memory limits and
   are reached over the VM's port forwarding; compare `needledb-docker` with Qdrant and pgvector
   for a like-for-like view. Embedded and native-server rows run on the host with all cores.
-- Qdrant is reached over gRPC (its fastest client); NeedleDB over HTTP/JSON; Postgres over its
-  binary protocol with prepared statements.
+- Each system uses its fastest standard wire format: Qdrant gRPC; Postgres its binary protocol
+  with prepared statements; NeedleDB HTTP/JSON with vectors as base64 float32 (what its SDK
+  sends by default).
 - pgvector's `vector` type indexes at most 2,000 dimensions, so the 3072-d run uses `halfvec`
   (float16), which is lossy.
 - One machine, one run per configuration. Treat differences under ~10% as noise. The published
-  run shared the machine with an unrelated CPU-heavy training job, so absolute numbers are
-  conservative; every system ran under the same conditions.
+  runs shared the machine with unrelated CPU-heavy training jobs (load average 12–20 on 15 cores),
+  so absolute numbers are conservative; every system ran under the same conditions.
 - Docker Desktop on macOS adds a port-forwarding hop to every request, which dominates the
   Docker rows at this latency scale; the native NeedleDB server row shows the same code without it.
 

@@ -11,6 +11,7 @@ import {
   IconTarget,
   IconUpload,
 } from "../icons";
+import { BenchmarksPage } from "./benchmarks";
 import { Accordion, C, Callout, CardGroup, DocCard, DocTable, H2, H3, ORIGIN, Step, Steps } from "./parts";
 import type { DocPage } from "./types";
 
@@ -390,13 +391,21 @@ docker compose -f deploy/docker-compose.yml up -d`} />
         <H2 id="measuring">Measuring</H2>
         <p>The app's overview shows live requests per second and p50/p99 per index. For dashboards and alerts, scrape <a href={api("metrics")}>/metrics</a> with Prometheus. Every query response also reports its own <C>usage.latencyMs</C> and <C>usage.plan</C>.</p>
         <Callout kind="note" title="Benchmarks">
-          The repository's <C>bench/REPORT.md</C> compares NeedleDB with raw FAISS, Qdrant and pgvector on real OpenAI embeddings, with recall reported next to every speed figure.
+          <a href={g("benchmarks")}>Benchmarks</a> compares NeedleDB with raw FAISS, Qdrant and pgvector on real OpenAI embeddings, with recall reported next to every speed figure.
         </Callout>
       </>
     ),
   },
 
   // ---- working with data --------------------------------------------------------------
+  {
+    slug: "benchmarks",
+    title: "Benchmarks",
+    group: "Concepts",
+    description: "NeedleDB against raw FAISS, Qdrant and pgvector on real OpenAI embeddings, with recall next to every number.",
+    keywords: "benchmark performance speed qps latency recall compare qdrant pgvector faiss pinecone memory build",
+    render: () => <BenchmarksPage />,
+  },
   {
     slug: "upsert",
     title: "Upsert",
