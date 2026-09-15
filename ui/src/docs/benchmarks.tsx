@@ -539,7 +539,11 @@ export function BenchmarksPage() {
       {embedded && faiss && (
         <>
           <H2 id="engine">The engine, in process</H2>
-          <p>Embedded in your Python process, NeedleDB runs close to raw FAISS while adding a durable log, deletes, namespaces and metadata filtering.</p>
+          <p>
+            Embedded in your Python process, NeedleDB adds a durable log, deletes, namespaces and metadata filtering on
+            top of FAISS — and still comes out ahead of the raw library at the same recall, because it serves fp16
+            vectors where FAISS's own defaults keep float32. The graph, the parameters and the search are the library's.
+          </p>
           <div className="h2h-grid">
             {metrics.filter((m) => m.id === "qps" || m.id === "concurrent").map((metric) => (
               <HeadToHead key={metric.id} metric={metric} ours={embedded} systems={[embedded, faiss]} />

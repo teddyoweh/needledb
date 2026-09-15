@@ -38,7 +38,7 @@ export const BENCHMARKS: BenchmarkSet[] = [
     "clients": 16,
     "machine": "Apple M5 Pro \u00b7 15 cores \u00b7 24 GB RAM",
     "dockerVm": "15 CPUs \u00b7 7.7 GB",
-    "finishedAt": "2026-09-14T19:21:18+00:00",
+    "finishedAt": "2026-09-15T07:56:29+00:00",
     "versions": {
       "faiss": "1.15.0",
       "needledb": "0.1.0",
@@ -53,77 +53,77 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "NeedleDB (embedded)",
         "transport": "in-process",
         "color": "#0072B2",
-        "buildSeconds": 43.3,
-        "memoryBytes": 2215262784,
+        "buildSeconds": 52.7,
+        "memoryBytes": 2530097728,
         "operating": {
           "ef": 64,
-          "recall": 0.9733,
-          "qps": 2003.2,
-          "p50Ms": 0.496,
-          "p99Ms": 0.714
+          "recall": 0.9737,
+          "qps": 2224.1,
+          "p50Ms": 0.423,
+          "p99Ms": 0.758
         },
-        "concurrentQps": 7355.9,
-        "clientMode": null,
+        "concurrentQps": 9751.4,
+        "clientMode": "threads",
         "filtered": {
           "50%": {
-            "recall": 0.9817,
-            "p50Ms": 0.763
+            "recall": 0.981,
+            "p50Ms": 0.75
           },
           "10%": {
-            "recall": 0.9777,
-            "p50Ms": 1.325
+            "recall": 0.978,
+            "p50Ms": 1.396
           },
           "1%": {
             "recall": 1.0,
-            "p50Ms": 0.591
+            "p50Ms": 0.824
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 0.084
+            "p50Ms": 0.092
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.8562,
-            "qps": 3885.3,
-            "p50Ms": 0.244,
-            "p99Ms": 0.456
+            "recall": 0.8569,
+            "qps": 4546.1,
+            "p50Ms": 0.192,
+            "p99Ms": 0.568
           },
           {
             "ef": 32,
-            "recall": 0.9351,
-            "qps": 3204.8,
-            "p50Ms": 0.298,
-            "p99Ms": 0.542
+            "recall": 0.9359,
+            "qps": 3385.5,
+            "p50Ms": 0.276,
+            "p99Ms": 0.518
           },
           {
             "ef": 64,
-            "recall": 0.9733,
-            "qps": 2003.2,
-            "p50Ms": 0.496,
-            "p99Ms": 0.714
+            "recall": 0.9737,
+            "qps": 2224.1,
+            "p50Ms": 0.423,
+            "p99Ms": 0.758
           },
           {
             "ef": 128,
-            "recall": 0.9923,
-            "qps": 1184.3,
-            "p50Ms": 0.849,
-            "p99Ms": 1.23
+            "recall": 0.9931,
+            "qps": 1153.0,
+            "p50Ms": 0.795,
+            "p99Ms": 1.954
           },
           {
             "ef": 256,
             "recall": 0.9978,
-            "qps": 653.7,
-            "p50Ms": 1.555,
-            "p99Ms": 1.892
+            "qps": 769.0,
+            "p50Ms": 1.309,
+            "p99Ms": 1.769
           },
           {
             "ef": 512,
-            "recall": 0.9991,
-            "qps": 360.8,
-            "p50Ms": 2.793,
-            "p99Ms": 3.563
+            "recall": 0.9992,
+            "qps": 412.9,
+            "p50Ms": 2.402,
+            "p99Ms": 3.716
           }
         ]
       },
@@ -132,77 +132,77 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "NeedleDB (server)",
         "transport": "http+json",
         "color": "#56B4E9",
-        "buildSeconds": 72.6,
-        "memoryBytes": 1584168960,
+        "buildSeconds": 66.8,
+        "memoryBytes": 1412579328,
         "operating": {
           "ef": 64,
-          "recall": 0.9734,
-          "qps": 806.5,
-          "p50Ms": 1.207,
-          "p99Ms": 1.82
+          "recall": 0.9735,
+          "qps": 515.1,
+          "p50Ms": 1.693,
+          "p99Ms": 4.54
         },
-        "concurrentQps": 1147.6,
-        "clientMode": null,
+        "concurrentQps": 3349.1,
+        "clientMode": "processes",
         "filtered": {
           "50%": {
-            "recall": 0.9813,
-            "p50Ms": 1.936
+            "recall": 0.9817,
+            "p50Ms": 1.683
           },
           "10%": {
-            "recall": 0.9813,
-            "p50Ms": 2.611
+            "recall": 0.9817,
+            "p50Ms": 2.153
           },
           "1%": {
             "recall": 1.0,
-            "p50Ms": 1.791
+            "p50Ms": 1.758
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 0.91
+            "p50Ms": 0.719
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.8613,
-            "qps": 1107.3,
-            "p50Ms": 0.884,
-            "p99Ms": 1.228
+            "recall": 0.8619,
+            "qps": 649.1,
+            "p50Ms": 1.363,
+            "p99Ms": 4.362
           },
           {
             "ef": 32,
-            "recall": 0.9367,
-            "qps": 993.3,
-            "p50Ms": 0.977,
-            "p99Ms": 1.428
+            "recall": 0.9374,
+            "qps": 319.0,
+            "p50Ms": 1.505,
+            "p99Ms": 9.088
           },
           {
             "ef": 64,
-            "recall": 0.9734,
-            "qps": 806.5,
-            "p50Ms": 1.207,
-            "p99Ms": 1.82
+            "recall": 0.9735,
+            "qps": 515.1,
+            "p50Ms": 1.693,
+            "p99Ms": 4.54
           },
           {
             "ef": 128,
-            "recall": 0.9926,
-            "qps": 610.4,
-            "p50Ms": 1.61,
-            "p99Ms": 2.327
+            "recall": 0.9925,
+            "qps": 429.5,
+            "p50Ms": 2.177,
+            "p99Ms": 3.855
           },
           {
             "ef": 256,
-            "recall": 0.9981,
-            "qps": 420.1,
-            "p50Ms": 2.347,
-            "p99Ms": 3.197
+            "recall": 0.9983,
+            "qps": 383.6,
+            "p50Ms": 2.548,
+            "p99Ms": 3.729
           },
           {
             "ef": 512,
-            "recall": 0.999,
-            "qps": 288.3,
-            "p50Ms": 3.461,
-            "p99Ms": 4.39
+            "recall": 0.9991,
+            "qps": 279.1,
+            "p50Ms": 3.593,
+            "p99Ms": 4.577
           }
         ]
       },
@@ -211,77 +211,77 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "NeedleDB (Docker)",
         "transport": "http+json",
         "color": "#009E73",
-        "buildSeconds": 147.8,
-        "memoryBytes": 1579474223,
+        "buildSeconds": 105.4,
+        "memoryBytes": 892652748,
         "operating": {
           "ef": 64,
-          "recall": 0.9734,
-          "qps": 244.7,
-          "p50Ms": 4.07,
-          "p99Ms": 6.235
+          "recall": 0.9727,
+          "qps": 881.5,
+          "p50Ms": 1.082,
+          "p99Ms": 1.9
         },
-        "concurrentQps": 405.9,
-        "clientMode": null,
+        "concurrentQps": 2817.9,
+        "clientMode": "processes",
         "filtered": {
           "50%": {
-            "recall": 0.9803,
-            "p50Ms": 6.646
+            "recall": 0.9813,
+            "p50Ms": 1.328
           },
           "10%": {
-            "recall": 0.9817,
-            "p50Ms": 6.419
+            "recall": 0.9807,
+            "p50Ms": 1.883
           },
           "1%": {
             "recall": 1.0,
-            "p50Ms": 12.073
+            "p50Ms": 3.159
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 3.12
+            "p50Ms": 0.767
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.8631,
-            "qps": 224.9,
-            "p50Ms": 4.17,
-            "p99Ms": 8.251
+            "recall": 0.8625,
+            "qps": 1078.6,
+            "p50Ms": 0.888,
+            "p99Ms": 1.521
           },
           {
             "ef": 32,
-            "recall": 0.938,
-            "qps": 204.7,
-            "p50Ms": 4.501,
-            "p99Ms": 9.692
+            "recall": 0.9366,
+            "qps": 1032.4,
+            "p50Ms": 0.938,
+            "p99Ms": 1.644
           },
           {
             "ef": 64,
-            "recall": 0.9734,
-            "qps": 244.7,
-            "p50Ms": 4.07,
-            "p99Ms": 6.235
+            "recall": 0.9727,
+            "qps": 881.5,
+            "p50Ms": 1.082,
+            "p99Ms": 1.9
           },
           {
             "ef": 128,
-            "recall": 0.9923,
-            "qps": 145.3,
-            "p50Ms": 5.98,
-            "p99Ms": 20.63
+            "recall": 0.9926,
+            "qps": 676.5,
+            "p50Ms": 1.454,
+            "p99Ms": 2.221
           },
           {
             "ef": 256,
-            "recall": 0.9981,
-            "qps": 123.9,
-            "p50Ms": 7.709,
-            "p99Ms": 17.188
+            "recall": 0.9979,
+            "qps": 483.5,
+            "p50Ms": 2.076,
+            "p99Ms": 2.472
           },
           {
             "ef": 512,
             "recall": 0.999,
-            "qps": 94.7,
-            "p50Ms": 10.494,
-            "p99Ms": 15.995
+            "qps": 292.9,
+            "p50Ms": 3.332,
+            "p99Ms": 5.42
           }
         ]
       },
@@ -290,77 +290,77 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "FAISS HNSW (raw library)",
         "transport": "in-process",
         "color": "#999999",
-        "buildSeconds": 35.8,
-        "memoryBytes": 2514729536,
+        "buildSeconds": 46.8,
+        "memoryBytes": 1670249024,
         "operating": {
           "ef": 64,
-          "recall": 0.9749,
-          "qps": 2168.2,
-          "p50Ms": 0.465,
-          "p99Ms": 0.6
+          "recall": 0.9753,
+          "qps": 1426.5,
+          "p50Ms": 0.681,
+          "p99Ms": 1.179
         },
-        "concurrentQps": 7687.2,
-        "clientMode": null,
+        "concurrentQps": 5832.0,
+        "clientMode": "threads",
         "filtered": {
           "50%": {
-            "recall": 0.9663,
-            "p50Ms": 0.496
+            "recall": 0.9673,
+            "p50Ms": 0.852
           },
           "10%": {
-            "recall": 0.871,
-            "p50Ms": 0.473
+            "recall": 0.8747,
+            "p50Ms": 0.717
           },
           "1%": {
-            "recall": 0.4577,
-            "p50Ms": 0.488
+            "recall": 0.4583,
+            "p50Ms": 0.757
           },
           "0.1%": {
             "recall": 0.1133,
-            "p50Ms": 0.471
+            "p50Ms": 0.632
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.8552,
-            "qps": 5211.8,
-            "p50Ms": 0.184,
-            "p99Ms": 0.31
+            "recall": 0.8481,
+            "qps": 3548.3,
+            "p50Ms": 0.267,
+            "p99Ms": 0.556
           },
           {
             "ef": 32,
-            "recall": 0.9348,
-            "qps": 3595.1,
-            "p50Ms": 0.27,
-            "p99Ms": 0.505
+            "recall": 0.9333,
+            "qps": 2127.8,
+            "p50Ms": 0.451,
+            "p99Ms": 0.846
           },
           {
             "ef": 64,
-            "recall": 0.9749,
-            "qps": 2168.2,
-            "p50Ms": 0.465,
-            "p99Ms": 0.6
+            "recall": 0.9753,
+            "qps": 1426.5,
+            "p50Ms": 0.681,
+            "p99Ms": 1.179
           },
           {
             "ef": 128,
-            "recall": 0.9933,
-            "qps": 1212.8,
-            "p50Ms": 0.833,
-            "p99Ms": 1.011
+            "recall": 0.9927,
+            "qps": 880.8,
+            "p50Ms": 1.091,
+            "p99Ms": 1.869
           },
           {
             "ef": 256,
-            "recall": 0.9979,
-            "qps": 675.2,
-            "p50Ms": 1.502,
-            "p99Ms": 1.829
+            "recall": 0.9978,
+            "qps": 641.9,
+            "p50Ms": 1.574,
+            "p99Ms": 1.988
           },
           {
             "ef": 512,
-            "recall": 0.9996,
-            "qps": 364.3,
-            "p50Ms": 2.769,
-            "p99Ms": 3.418
+            "recall": 0.9995,
+            "qps": 351.5,
+            "p50Ms": 2.867,
+            "p99Ms": 3.507
           }
         ]
       },
@@ -369,70 +369,70 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "Qdrant (Docker)",
         "transport": "grpc",
         "color": "#D55E00",
-        "buildSeconds": 418.2,
-        "memoryBytes": 974756249,
+        "buildSeconds": 243.5,
+        "memoryBytes": 965004492,
         "operating": {
           "ef": 32,
-          "recall": 0.9769,
-          "qps": 262.4,
-          "p50Ms": 3.719,
-          "p99Ms": 5.179
+          "recall": 0.9702,
+          "qps": 250.7,
+          "p50Ms": 3.706,
+          "p99Ms": 6.85
         },
-        "concurrentQps": 510.4,
-        "clientMode": null,
+        "concurrentQps": 1230.1,
+        "clientMode": "processes",
         "filtered": {
           "50%": {
-            "recall": 0.9563,
-            "p50Ms": 3.985
+            "recall": 0.9487,
+            "p50Ms": 5.577
           },
           "10%": {
-            "recall": 0.99,
-            "p50Ms": 3.269
+            "recall": 0.9913,
+            "p50Ms": 5.105
           },
           "1%": {
             "recall": 1.0,
-            "p50Ms": 2.405
+            "p50Ms": 3.705
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 2.027
+            "p50Ms": 2.924
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.926,
-            "qps": 258.5,
-            "p50Ms": 3.668,
-            "p99Ms": 6.106
+            "recall": 0.9208,
+            "qps": 213.0,
+            "p50Ms": 3.68,
+            "p99Ms": 18.595
           },
           {
             "ef": 32,
-            "recall": 0.9769,
-            "qps": 262.4,
-            "p50Ms": 3.719,
-            "p99Ms": 5.179
+            "recall": 0.9702,
+            "qps": 250.7,
+            "p50Ms": 3.706,
+            "p99Ms": 6.85
           },
           {
             "ef": 64,
-            "recall": 0.9934,
-            "qps": 198.5,
-            "p50Ms": 5.001,
-            "p99Ms": 6.383
+            "recall": 0.9928,
+            "qps": 113.0,
+            "p50Ms": 6.847,
+            "p99Ms": 32.38
           },
           {
             "ef": 128,
-            "recall": 0.9985,
-            "qps": 122.5,
-            "p50Ms": 7.655,
-            "p99Ms": 13.553
+            "recall": 0.9987,
+            "qps": 130.7,
+            "p50Ms": 7.216,
+            "p99Ms": 13.955
           },
           {
             "ef": 256,
-            "recall": 0.9998,
-            "qps": 76.7,
-            "p50Ms": 12.797,
-            "p99Ms": 20.359
+            "recall": 0.9999,
+            "qps": 55.6,
+            "p50Ms": 14.595,
+            "p99Ms": 72.188
           }
         ]
       },
@@ -441,77 +441,77 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "pgvector (Docker)",
         "transport": "postgres",
         "color": "#CC79A7",
-        "buildSeconds": 356.5,
-        "memoryBytes": 1847909679,
+        "buildSeconds": 481.1,
+        "memoryBytes": 1844688453,
         "operating": {
           "ef": 64,
-          "recall": 0.9802,
-          "qps": 321.6,
-          "p50Ms": 2.567,
-          "p99Ms": 9.419
+          "recall": 0.9798,
+          "qps": 92.0,
+          "p50Ms": 5.957,
+          "p99Ms": 79.524
         },
-        "concurrentQps": 2649.2,
-        "clientMode": null,
+        "concurrentQps": 900.0,
+        "clientMode": "processes",
         "filtered": {
           "50%": {
-            "recall": 0.974,
-            "p50Ms": 2.408
+            "recall": 0.972,
+            "p50Ms": 8.286
           },
           "10%": {
-            "recall": 0.9637,
-            "p50Ms": 4.1
+            "recall": 0.9633,
+            "p50Ms": 25.981
           },
           "1%": {
             "recall": 1.0,
-            "p50Ms": 3.367
+            "p50Ms": 21.248
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 0.438
+            "p50Ms": 2.818
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.879,
-            "qps": 679.3,
-            "p50Ms": 1.334,
-            "p99Ms": 3.293
+            "recall": 0.8809,
+            "qps": 140.6,
+            "p50Ms": 4.773,
+            "p99Ms": 36.3
           },
           {
             "ef": 32,
             "recall": 0.9442,
-            "qps": 625.8,
-            "p50Ms": 1.545,
-            "p99Ms": 2.878
+            "qps": 306.1,
+            "p50Ms": 3.095,
+            "p99Ms": 6.043
           },
           {
             "ef": 64,
-            "recall": 0.9802,
-            "qps": 321.6,
-            "p50Ms": 2.567,
-            "p99Ms": 9.419
+            "recall": 0.9798,
+            "qps": 92.0,
+            "p50Ms": 5.957,
+            "p99Ms": 79.524
           },
           {
             "ef": 128,
-            "recall": 0.9948,
-            "qps": 251.9,
-            "p50Ms": 3.937,
-            "p99Ms": 6.837
+            "recall": 0.9945,
+            "qps": 93.2,
+            "p50Ms": 10.346,
+            "p99Ms": 19.842
           },
           {
             "ef": 256,
             "recall": 0.9981,
-            "qps": 144.5,
-            "p50Ms": 6.771,
-            "p99Ms": 12.423
+            "qps": 69.5,
+            "p50Ms": 14.151,
+            "p99Ms": 23.683
           },
           {
             "ef": 512,
             "recall": 0.9993,
-            "qps": 78.9,
-            "p50Ms": 12.23,
-            "p99Ms": 29.088
+            "qps": 26.1,
+            "p50Ms": 30.54,
+            "p99Ms": 176.034
           }
         ]
       },
@@ -521,41 +521,41 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "transport": "in-process",
         "color": "#000000",
         "buildSeconds": 0.0,
-        "memoryBytes": 1230240320,
+        "memoryBytes": 1230748224,
         "operating": {
           "ef": 0,
           "recall": 1.0,
-          "qps": 45.0,
-          "p50Ms": 21.538,
-          "p99Ms": 40.314
+          "qps": 68.8,
+          "p50Ms": 13.406,
+          "p99Ms": 31.499
         },
-        "concurrentQps": 76.9,
-        "clientMode": null,
+        "concurrentQps": 166.0,
+        "clientMode": "threads",
         "filtered": {
           "50%": {
             "recall": 1.0,
-            "p50Ms": 20.863
+            "p50Ms": 13.506
           },
           "10%": {
             "recall": 1.0,
-            "p50Ms": 11.975
+            "p50Ms": 13.745
           },
           "1%": {
             "recall": 1.0,
-            "p50Ms": 11.852
+            "p50Ms": 12.674
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 11.668
+            "p50Ms": 12.971
           }
         },
         "sweep": [
           {
             "ef": 0,
             "recall": 1.0,
-            "qps": 45.0,
-            "p50Ms": 21.538,
-            "p99Ms": 40.314
+            "qps": 68.8,
+            "p50Ms": 13.406,
+            "p99Ms": 31.499
           }
         ]
       }
@@ -570,7 +570,7 @@ export const BENCHMARKS: BenchmarkSet[] = [
     "clients": 16,
     "machine": "Apple M5 Pro \u00b7 15 cores \u00b7 24 GB RAM",
     "dockerVm": "15 CPUs \u00b7 7.7 GB",
-    "finishedAt": "2026-09-15T06:23:27+00:00",
+    "finishedAt": "2026-09-15T07:54:15+00:00",
     "versions": {
       "faiss": "1.15.0",
       "needledb": "0.1.0",
@@ -585,77 +585,77 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "NeedleDB (embedded)",
         "transport": "in-process",
         "color": "#0072B2",
-        "buildSeconds": 27.7,
-        "memoryBytes": 1190738496,
+        "buildSeconds": 31.2,
+        "memoryBytes": 1317108288,
         "operating": {
           "ef": 64,
-          "recall": 0.9768,
-          "qps": 2383.4,
-          "p50Ms": 0.417,
-          "p99Ms": 0.58
+          "recall": 0.976,
+          "qps": 1995.1,
+          "p50Ms": 0.473,
+          "p99Ms": 1.217
         },
-        "concurrentQps": 7506.0,
+        "concurrentQps": 10453.6,
         "clientMode": "threads",
         "filtered": {
           "50%": {
-            "recall": 0.9797,
-            "p50Ms": 0.606
+            "recall": 0.9793,
+            "p50Ms": 0.586
           },
           "10%": {
-            "recall": 0.979,
-            "p50Ms": 1.21
+            "recall": 0.978,
+            "p50Ms": 0.937
           },
           "1%": {
-            "recall": 1.0,
-            "p50Ms": 0.449
+            "recall": 0.9997,
+            "p50Ms": 0.482
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 0.091
+            "p50Ms": 0.086
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.8533,
-            "qps": 4432.5,
-            "p50Ms": 0.202,
-            "p99Ms": 0.552
+            "recall": 0.8535,
+            "qps": 4928.3,
+            "p50Ms": 0.177,
+            "p99Ms": 0.618
           },
           {
             "ef": 32,
-            "recall": 0.9324,
-            "qps": 3397.3,
-            "p50Ms": 0.268,
-            "p99Ms": 0.578
+            "recall": 0.9331,
+            "qps": 3454.3,
+            "p50Ms": 0.281,
+            "p99Ms": 0.485
           },
           {
             "ef": 64,
-            "recall": 0.9768,
-            "qps": 2383.4,
-            "p50Ms": 0.417,
-            "p99Ms": 0.58
+            "recall": 0.976,
+            "qps": 1995.1,
+            "p50Ms": 0.473,
+            "p99Ms": 1.217
           },
           {
             "ef": 128,
             "recall": 0.9923,
-            "qps": 1468.9,
-            "p50Ms": 0.685,
-            "p99Ms": 0.888
+            "qps": 1543.5,
+            "p50Ms": 0.623,
+            "p99Ms": 1.114
           },
           {
             "ef": 256,
-            "recall": 0.9971,
-            "qps": 847.6,
-            "p50Ms": 1.187,
-            "p99Ms": 1.511
+            "recall": 0.9969,
+            "qps": 1018.8,
+            "p50Ms": 0.976,
+            "p99Ms": 1.426
           },
           {
             "ef": 512,
-            "recall": 0.9989,
-            "qps": 469.1,
-            "p50Ms": 2.122,
-            "p99Ms": 3.101
+            "recall": 0.999,
+            "qps": 540.2,
+            "p50Ms": 1.845,
+            "p99Ms": 2.489
           }
         ]
       },
@@ -664,77 +664,77 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "NeedleDB (server)",
         "transport": "http+json",
         "color": "#56B4E9",
-        "buildSeconds": 81.1,
-        "memoryBytes": 853606400,
+        "buildSeconds": 39.7,
+        "memoryBytes": 772538368,
         "operating": {
           "ef": 64,
-          "recall": 0.9763,
-          "qps": 685.2,
-          "p50Ms": 1.397,
-          "p99Ms": 2.106
+          "recall": 0.9757,
+          "qps": 695.9,
+          "p50Ms": 1.194,
+          "p99Ms": 1.935
         },
-        "concurrentQps": 869.3,
-        "clientMode": null,
+        "concurrentQps": 3694.6,
+        "clientMode": "processes",
         "filtered": {
           "50%": {
-            "recall": 0.982,
-            "p50Ms": 2.02
+            "recall": 0.98,
+            "p50Ms": 1.32
           },
           "10%": {
-            "recall": 0.979,
-            "p50Ms": 2.648
+            "recall": 0.9793,
+            "p50Ms": 1.76
           },
           "1%": {
-            "recall": 1.0,
-            "p50Ms": 1.937
+            "recall": 0.9997,
+            "p50Ms": 1.527
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 1.44
+            "p50Ms": 0.953
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.8559,
-            "qps": 629.1,
-            "p50Ms": 1.61,
-            "p99Ms": 2.514
+            "recall": 0.8568,
+            "qps": 922.7,
+            "p50Ms": 1.066,
+            "p99Ms": 1.565
           },
           {
             "ef": 32,
-            "recall": 0.9358,
-            "qps": 870.0,
-            "p50Ms": 1.133,
-            "p99Ms": 1.563
+            "recall": 0.9357,
+            "qps": 931.5,
+            "p50Ms": 1.023,
+            "p99Ms": 1.393
           },
           {
             "ef": 64,
-            "recall": 0.9763,
-            "qps": 685.2,
-            "p50Ms": 1.397,
-            "p99Ms": 2.106
+            "recall": 0.9757,
+            "qps": 695.9,
+            "p50Ms": 1.194,
+            "p99Ms": 1.935
           },
           {
             "ef": 128,
-            "recall": 0.9922,
-            "qps": 594.7,
-            "p50Ms": 1.663,
-            "p99Ms": 2.28
+            "recall": 0.9924,
+            "qps": 700.8,
+            "p50Ms": 1.388,
+            "p99Ms": 2.197
           },
           {
             "ef": 256,
             "recall": 0.9973,
-            "qps": 430.3,
-            "p50Ms": 2.307,
-            "p99Ms": 2.961
+            "qps": 547.4,
+            "p50Ms": 1.796,
+            "p99Ms": 2.42
           },
           {
             "ef": 512,
             "recall": 0.9988,
-            "qps": 257.5,
-            "p50Ms": 3.883,
-            "p99Ms": 5.195
+            "qps": 369.5,
+            "p50Ms": 2.668,
+            "p99Ms": 3.346
           }
         ]
       },
@@ -743,77 +743,77 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "NeedleDB (Docker)",
         "transport": "http+json",
         "color": "#009E73",
-        "buildSeconds": 64.3,
-        "memoryBytes": 976853401,
+        "buildSeconds": 56.2,
+        "memoryBytes": 833722777,
         "operating": {
           "ef": 64,
-          "recall": 0.9756,
-          "qps": 697.1,
-          "p50Ms": 1.261,
-          "p99Ms": 3.323
+          "recall": 0.976,
+          "qps": 823.0,
+          "p50Ms": 1.136,
+          "p99Ms": 2.325
         },
-        "concurrentQps": 981.6,
-        "clientMode": null,
+        "concurrentQps": 2509.5,
+        "clientMode": "processes",
         "filtered": {
           "50%": {
-            "recall": 0.981,
-            "p50Ms": 1.958
+            "recall": 0.9813,
+            "p50Ms": 1.473
           },
           "10%": {
-            "recall": 0.9783,
-            "p50Ms": 2.477
+            "recall": 0.9777,
+            "p50Ms": 1.876
           },
           "1%": {
-            "recall": 1.0,
-            "p50Ms": 5.293
+            "recall": 0.9997,
+            "p50Ms": 4.83
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 0.93
+            "p50Ms": 0.834
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.854,
-            "qps": 873.7,
-            "p50Ms": 1.016,
-            "p99Ms": 2.169
+            "recall": 0.8555,
+            "qps": 773.9,
+            "p50Ms": 1.136,
+            "p99Ms": 3.528
           },
           {
             "ef": 32,
-            "recall": 0.9352,
-            "qps": 919.4,
-            "p50Ms": 1.003,
-            "p99Ms": 2.233
+            "recall": 0.9361,
+            "qps": 752.3,
+            "p50Ms": 0.967,
+            "p99Ms": 2.611
           },
           {
             "ef": 64,
-            "recall": 0.9756,
-            "qps": 697.1,
-            "p50Ms": 1.261,
-            "p99Ms": 3.323
+            "recall": 0.976,
+            "qps": 823.0,
+            "p50Ms": 1.136,
+            "p99Ms": 2.325
           },
           {
             "ef": 128,
-            "recall": 0.9918,
-            "qps": 573.6,
-            "p50Ms": 1.619,
-            "p99Ms": 3.508
+            "recall": 0.9926,
+            "qps": 649.6,
+            "p50Ms": 1.434,
+            "p99Ms": 2.831
           },
           {
             "ef": 256,
-            "recall": 0.997,
-            "qps": 491.6,
-            "p50Ms": 1.996,
-            "p99Ms": 3.213
+            "recall": 0.9971,
+            "qps": 459.6,
+            "p50Ms": 2.055,
+            "p99Ms": 4.342
           },
           {
             "ef": 512,
             "recall": 0.9988,
-            "qps": 326.4,
-            "p50Ms": 3.007,
-            "p99Ms": 4.692
+            "qps": 289.2,
+            "p50Ms": 3.31,
+            "p99Ms": 6.567
           }
         ]
       },
@@ -901,70 +901,63 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "Qdrant (Docker)",
         "transport": "grpc",
         "color": "#D55E00",
-        "buildSeconds": 132.7,
-        "memoryBytes": 1016909004,
+        "buildSeconds": 120.8,
+        "memoryBytes": 974861107,
         "operating": {
           "ef": 32,
-          "recall": 0.9712,
-          "qps": 362.0,
-          "p50Ms": 2.716,
-          "p99Ms": 3.747
+          "recall": 0.9761,
+          "qps": 422.5,
+          "p50Ms": 2.349,
+          "p99Ms": 2.848
         },
-        "concurrentQps": 973.8,
-        "clientMode": null,
+        "concurrentQps": 2012.0,
+        "clientMode": "processes",
         "filtered": {
           "50%": {
-            "recall": 0.9623,
-            "p50Ms": 2.322
+            "recall": 0.9687,
+            "p50Ms": 2.796
           },
           "10%": {
-            "recall": 0.985,
-            "p50Ms": 1.843
+            "recall": 0.9913,
+            "p50Ms": 2.319
           },
           "1%": {
             "recall": 1.0,
-            "p50Ms": 1.159
+            "p50Ms": 1.677
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 0.856
+            "p50Ms": 1.201
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.9186,
-            "qps": 430.0,
-            "p50Ms": 2.26,
-            "p99Ms": 3.405
+            "recall": 0.9325,
+            "qps": 465.5,
+            "p50Ms": 2.099,
+            "p99Ms": 2.798
           },
           {
             "ef": 32,
-            "recall": 0.9712,
-            "qps": 362.0,
-            "p50Ms": 2.716,
-            "p99Ms": 3.747
+            "recall": 0.9761,
+            "qps": 422.5,
+            "p50Ms": 2.349,
+            "p99Ms": 2.848
           },
           {
             "ef": 64,
-            "recall": 0.9912,
-            "qps": 268.8,
-            "p50Ms": 3.308,
-            "p99Ms": 9.413
+            "recall": 0.9959,
+            "qps": 297.6,
+            "p50Ms": 3.319,
+            "p99Ms": 4.518
           },
           {
             "ef": 128,
-            "recall": 0.9978,
-            "qps": 176.4,
-            "p50Ms": 5.638,
-            "p99Ms": 8.326
-          },
-          {
-            "ef": 256,
-            "recall": 0.9997,
-            "qps": 121.9,
-            "p50Ms": 7.855,
-            "p99Ms": 13.219
+            "recall": 0.9995,
+            "qps": 189.6,
+            "p50Ms": 5.157,
+            "p99Ms": 8.409
           }
         ]
       },
@@ -973,77 +966,77 @@ export const BENCHMARKS: BenchmarkSet[] = [
         "name": "pgvector (Docker)",
         "transport": "postgres",
         "color": "#CC79A7",
-        "buildSeconds": 291.2,
-        "memoryBytes": 1832877293,
+        "buildSeconds": 503.7,
+        "memoryBytes": 1846835937,
         "operating": {
           "ef": 64,
-          "recall": 0.9802,
-          "qps": 365.3,
-          "p50Ms": 2.711,
-          "p99Ms": 3.963
+          "recall": 0.981,
+          "qps": 352.9,
+          "p50Ms": 2.731,
+          "p99Ms": 4.843
         },
-        "concurrentQps": 2426.4,
-        "clientMode": null,
+        "concurrentQps": 2336.1,
+        "clientMode": "processes",
         "filtered": {
           "50%": {
-            "recall": 0.973,
-            "p50Ms": 2.801
+            "recall": 0.972,
+            "p50Ms": 3.215
           },
           "10%": {
-            "recall": 0.965,
-            "p50Ms": 4.535
+            "recall": 0.9637,
+            "p50Ms": 4.209
           },
           "1%": {
             "recall": 1.0,
-            "p50Ms": 4.562
+            "p50Ms": 3.665
           },
           "0.1%": {
             "recall": 1.0,
-            "p50Ms": 0.42
+            "p50Ms": 0.507
           }
         },
         "sweep": [
           {
             "ef": 16,
-            "recall": 0.8781,
-            "qps": 753.2,
-            "p50Ms": 1.269,
-            "p99Ms": 2.258
+            "recall": 0.8827,
+            "qps": 668.7,
+            "p50Ms": 1.424,
+            "p99Ms": 2.778
           },
           {
             "ef": 32,
-            "recall": 0.9477,
-            "qps": 582.1,
-            "p50Ms": 1.684,
-            "p99Ms": 2.582
+            "recall": 0.9492,
+            "qps": 558.7,
+            "p50Ms": 1.731,
+            "p99Ms": 3.155
           },
           {
             "ef": 64,
-            "recall": 0.9802,
-            "qps": 365.3,
-            "p50Ms": 2.711,
-            "p99Ms": 3.963
+            "recall": 0.981,
+            "qps": 352.9,
+            "p50Ms": 2.731,
+            "p99Ms": 4.843
           },
           {
             "ef": 128,
-            "recall": 0.9937,
-            "qps": 232.1,
-            "p50Ms": 4.346,
-            "p99Ms": 5.627
+            "recall": 0.9938,
+            "qps": 190.5,
+            "p50Ms": 4.464,
+            "p99Ms": 13.945
           },
           {
             "ef": 256,
-            "recall": 0.9976,
-            "qps": 131.0,
-            "p50Ms": 7.609,
-            "p99Ms": 12.096
+            "recall": 0.9975,
+            "qps": 113.2,
+            "p50Ms": 8.355,
+            "p99Ms": 18.354
           },
           {
             "ef": 512,
             "recall": 0.999,
-            "qps": 76.1,
-            "p50Ms": 13.069,
-            "p99Ms": 23.528
+            "qps": 63.0,
+            "p50Ms": 14.289,
+            "p99Ms": 58.45
           }
         ]
       },

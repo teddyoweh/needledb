@@ -26,6 +26,16 @@ directly in your Python process with no server at all.
   - Prometheus `/metrics`, OpenAPI docs at `/docs`, built-in TLS or proxy support;
   - a Docker image.
 - **Benchmarked honestly** against raw FAISS, Qdrant and pgvector on real OpenAI embeddings.
+  100,000 × 3,072-d vectors, every system in the same Docker VM with 8 CPUs, each tuned to the
+  smallest search width that reaches 95% recall@10:
+
+  | 3,072-d, 100k | Build | Memory | p50 | p99 | QPS, 1 client | QPS, 16 clients |
+  |---|---:|---:|---:|---:|---:|---:|
+  | **NeedleDB** | **105 s** | **0.83 GB** | **1.08 ms** | **1.90 ms** | **881** | **2,818** |
+  | Qdrant | 244 s | 0.90 GB | 3.71 ms | 6.85 ms | 251 | 1,230 |
+  | pgvector | 481 s | 1.72 GB | 5.96 ms | 79.5 ms | 92 | 900 |
+
+  Full numbers, the 1,536-d set and the method: [`bench/REPORT.md`](bench/REPORT.md).
   Recall is always reported next to speed. See [bench/REPORT.md](bench/REPORT.md).
 
 ## Quickstart
