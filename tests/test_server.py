@@ -111,6 +111,16 @@ def test_data_plane_errors(client, path, body, code):
     assert resp.status_code == {"INVALID_ARGUMENT": 400, "NOT_FOUND": 404}[code]
 
 
+def test_vector_map_route(client):
+    make_index(client, dimension=4)
+    client.post("/indexes/products/vectors/upsert", json={"vectors": [
+        {"id": f"v{i}", "values": [i, i % 3, 1, 2], "metadata": {"name": f"item {i}"}} for i in range(1, 40)]})
+    body = client.get("/indexes/products/map", params={"limit": 20}).json()
+    assert body["sampled"] == 20 and body["total"] == 39
+    assert {"id", "x", "y", "cluster", "label"} <= set(body["points"][0])
+    assert client.get("/indexes/products/map", params={"limit": 0}).status_code == 400
+
+
 def test_malformed_json_and_unknown_routes(client):
     make_index(client)
     resp = client.post("/indexes/products/query", content=b"{not json", headers={"Content-Type": "application/json"})

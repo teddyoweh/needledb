@@ -55,7 +55,8 @@ create table if not exists api_keys (
     indexes      text,
     created_at   real not null,
     last_used_at real,
-    revoked_at   real
+    revoked_at   real,
+    expires_at   real
 );
 """
 
@@ -106,6 +107,9 @@ class KeyStore:
         self._conn = sqlite3.connect(directory / "auth.sqlite", check_same_thread=False, isolation_level=None)
         self._conn.execute("pragma journal_mode = wal")
         self._conn.executescript(_SCHEMA)
+        columns = {row[1] for row in self._conn.execute("pragma table_info(api_keys)")}
+        if "expires_at" not in columns:                       # stores created before key expiry
+            self._conn.execute("alter table api_keys add column expires_at real")
         self._environment = {_digest(k): i for i, k in enumerate(environment_keys)}
         self._secret = self._load_secret()
         self._by_digest: dict[str, tuple[float, Principal | None]] = {}
@@ -141,7 +145,8 @@ class KeyStore:
             self._touch(principal.id)
         return principal
 
-    def create_key(self, name: str, role: str, indexes: list[str] | None = None) -> tuple[dict, str]:
+    def create_key(self, name: str, role: str, indexes: list[str] | None = None,
+                   expires_in_days: int | None = None) -> tuple[dict, str]:
         if not isinstance(name, str) or not name.strip() or len(name.strip()) > 64:
             raise InvalidArgument("name must be 1–64 characters")
         if role not in ROLES:
@@ -153,19 +158,25 @@ class KeyStore:
                     or not all(isinstance(i, str) and _INDEX_RE.match(i) for i in indexes)):
                 raise InvalidArgument("indexes must be a non-empty list of index names")
             indexes = sorted(set(indexes))
+        if expires_in_days is not None and (not isinstance(expires_in_days, int) or isinstance(expires_in_days, bool)
+                                            or not 1 <= expires_in_days <= 3650):
+            raise InvalidArgument("expiresInDays must be a whole number of days from 1 to 3650")
+        now = time.time()
+        expires_at = now + expires_in_days * 86400 if expires_in_days else None
         key = KEY_PREFIX + secrets.token_urlsafe(32)
         key_id = "key_" + secrets.token_hex(6)
         with self._lock:
             self._conn.execute(
-                "insert into api_keys (id, name, prefix, hash, role, indexes, created_at) values (?, ?, ?, ?, ?, ?, ?)",
+                "insert into api_keys (id, name, prefix, hash, role, indexes, created_at, expires_at) "
+                "values (?, ?, ?, ?, ?, ?, ?, ?)",
                 (key_id, name.strip(), key[:10], _digest(key), role,
-                 json.dumps(indexes) if indexes is not None else None, time.time()))
+                 json.dumps(indexes) if indexes is not None else None, now, expires_at))
         return self.get_key(key_id), key
 
     def get_key(self, key_id: str) -> dict:
         with self._lock:
             row = self._conn.execute(
-                "select id, name, prefix, role, indexes, created_at, last_used_at from api_keys "
+                "select id, name, prefix, role, indexes, created_at, last_used_at, expires_at from api_keys "
                 "where id = ? and revoked_at is null", (key_id,)).fetchone()
         if row is None:
             raise NotFound(f"key {key_id!r} not found")
@@ -174,16 +185,18 @@ class KeyStore:
     def list_keys(self) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
-                "select id, name, prefix, role, indexes, created_at, last_used_at from api_keys "
+                "select id, name, prefix, role, indexes, created_at, last_used_at, expires_at from api_keys "
                 "where revoked_at is null order by created_at desc").fetchall()
         environment = [{"id": f"env-{i + 1}", "name": self._environment_name(i), "prefix": None, "role": "admin",
-                        "indexes": None, "createdAt": None, "lastUsedAt": None, "managed": False}
+                        "indexes": None, "createdAt": None, "lastUsedAt": None, "expiresAt": None, "managed": False}
                        for i in range(len(self._environment))]
         return environment + [self._key_dict(r) for r in rows]
 
     def count_active(self) -> int:
         with self._lock:
-            return self._conn.execute("select count(*) from api_keys where revoked_at is null").fetchone()[0]
+            return self._conn.execute(
+                "select count(*) from api_keys where revoked_at is null and (expires_at is null or expires_at > ?)",
+                (time.time(),)).fetchone()[0]
 
     def revoke_key(self, key_id: str) -> None:
         if key_id.startswith("env-"):
@@ -271,8 +284,8 @@ class KeyStore:
     def _load(self, column: str, value: str) -> Principal | None:
         with self._lock:
             row = self._conn.execute(
-                f"select id, name, role, indexes from api_keys where {column} = ? and revoked_at is null",
-                (value,)).fetchone()
+                f"select id, name, role, indexes from api_keys where {column} = ? and revoked_at is null "
+                f"and (expires_at is null or expires_at > ?)", (value, time.time())).fetchone()
         if row is None:
             return None
         indexes = tuple(json.loads(row[3])) if row[3] else None
@@ -303,7 +316,7 @@ class KeyStore:
     def _key_dict(row) -> dict:
         return {"id": row[0], "name": row[1], "prefix": row[2], "role": row[3],
                 "indexes": json.loads(row[4]) if row[4] else None,
-                "createdAt": row[5], "lastUsedAt": row[6], "managed": True}
+                "createdAt": row[5], "lastUsedAt": row[6], "expiresAt": row[7], "managed": True}
 
 
 class Lockout:

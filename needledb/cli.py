@@ -54,7 +54,7 @@ def _keys(args) -> int:
     store = KeyStore(Path(args.data) / "_system", [])
     try:
         if args.keys_command == "create":
-            info, key = store.create_key(args.name, args.role, args.index or None)
+            info, key = store.create_key(args.name, args.role, args.index or None, args.expires_days)
             print(f"Created {info['role']} key “{info['name']}” ({info['id']})"
                   + (f" for {', '.join(info['indexes'])}" if info["indexes"] else "")
                   + f".\n\n  {key}\n\nStore it now — it can't be shown again.")
@@ -101,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     create.add_argument("--name", required=True)
     create.add_argument("--role", choices=["read", "write", "admin"], default="read")
     create.add_argument("--index", action="append", help="limit the key to this index (repeatable)")
+    create.add_argument("--expires-days", type=int, help="expire the key after this many days")
     keys_sub.add_parser("list", parents=[data_option], help="list active keys")
     revoke = keys_sub.add_parser("revoke", parents=[data_option], help="revoke a key by id")
     revoke.add_argument("id")

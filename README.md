@@ -116,9 +116,11 @@ web app's session. Errors are
 | `POST` | `/indexes/{name}/vectors/update` | `{id, values?, setMetadata?, namespace?}` |
 | `POST` | `/indexes/{name}/vectors/delete` | `{ids \| deleteAll \| filter, namespace?}` → `{deletedCount}` |
 | `GET` | `/indexes/{name}/vectors/list` | `?prefix&limit&paginationToken&namespace` |
+| `GET` | `/indexes/{name}/map` | `?namespace&limit&color_by` → a 2-D projection of a sample, for the explorer |
 | `POST` | `/indexes/{name}/describe_index_stats` | `{filter?}` |
 | `GET` | `/health` · `/stats` · `/metrics` | liveness · dashboard JSON · Prometheus |
-| `GET`/`POST`/`DELETE` | `/keys` · `/keys/{id}` | list, create (`{name, role, indexes?}` → the key, once), revoke — admin |
+| `GET`/`POST`/`DELETE` | `/keys` · `/keys/{id}` | list, create (`{name, role, indexes?, expiresInDays?}` → the key, once), revoke — admin |
+| `GET` | `/events` | `?limit&before` → the audit log — admin |
 | `POST` | `/auth/login` · `/auth/logout` · `/auth/sessions/revoke-all` | web-app sessions |
 
 ```bash
@@ -177,12 +179,15 @@ can change at any time, and per query with `efSearch`. Every query reports its `
 - **Query:** search by stored record or vector. Results show the record's title, similarity,
   metadata, server and round-trip latency, and the plan. Filters can be built from fields seen in
   results, and the request copies as cURL.
+- **Explore:** a map of the index laid out by similarity, coloured by cluster or any metadata
+  field. Click a point to thread its nearest neighbours. Empty indexes offer sample data.
 - **Browse:** page through records by title, inspect metadata and a colour strip of the vector, find
   similar records, delete.
 - **Upsert and Settings:** paste validated JSON records; tune `ef_search` with a slider; delete an index.
 - **API Keys and Security:** create scoped keys (shown once) and revoke them; review every
   protection active on your connection; end all sessions.
 - **⌘K:** jump to any index, page or action.
+- **Docs** at `/app/#/docs`: guides, an API reference and the Python SDK, readable without signing in.
 
 `/ui` redirects to `/app/`.
 

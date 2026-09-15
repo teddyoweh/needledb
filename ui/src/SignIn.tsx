@@ -163,7 +163,7 @@ export default function SignIn({ onSignedIn }: { onSignedIn: (me: Me) => void })
           </Button>
         </form>
         <p className="signin-foot">
-          Admin keys come from <code>NEEDLEDB_API_KEY</code> or <code>needledb keys create</code>. Admins can issue scoped keys under API Keys.
+          Admin keys come from <code>NEEDLEDB_API_KEY</code> or <code>needledb keys create</code>. New here? <a href="#/docs/guides/quickstart">Read the quickstart</a>.
         </p>
       </div>
       <div className="signin-corner">NeedleDB · self-hosted vector database</div>

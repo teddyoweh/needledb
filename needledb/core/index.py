@@ -282,6 +282,47 @@ class Index:
         return {"vectors": [{"id": i} for i in page],
                 "pagination": {"next": nxt} if nxt else {}, "namespace": ns}
 
+    def vector_map(self, namespace: str | None = None, limit: int = 1500, color_by: str | None = None) -> dict:
+        """A 2-D projection of a sample of a namespace, for the explorer.
+
+        Each point carries its k-means `cluster`; with `color_by`, also that metadata
+        field's value as `group`. `colorFields` lists fields worth colouring by: scalar
+        values with 2–12 distinct values across the sample.
+        """
+        ns = self._namespace(namespace)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 5000:
+            raise InvalidArgument("limit must be an integer from 1 to 5000")
+        if color_by is not None and (not isinstance(color_by, str) or not 0 < len(color_by) <= 128):
+            raise InvalidArgument("color_by must be a metadata field name")
+        empty = {"namespace": ns, "total": 0, "sampled": 0, "explained": [0.0, 0.0], "points": [], "colorFields": []}
+        coll = self._collection(ns)
+        if coll is None:
+            return empty
+        with coll.lock.read():
+            total = coll.live
+            projection = coll.projection(limit)
+            if projection is None:
+                return empty
+            points, distinct = [], {}
+            for slot, (x, y), cluster in zip(projection["slots"].tolist(), projection["coords"].tolist(),
+                                             projection["clusters"].tolist()):
+                metadata = coll.meta.get(slot) or {}
+                point = {"id": coll.slot_ids[slot], "x": round(x, 5), "y": round(y, 5),
+                         "cluster": int(cluster), "label": _label(metadata)}
+                if color_by is not None:
+                    point["group"] = _group(metadata.get(color_by))
+                points.append(point)
+                for field, value in metadata.items():
+                    seen = distinct.setdefault(field, set())
+                    if seen is not None and _group(value) is not None:
+                        seen.add(_group(value))
+                        if len(seen) > 12:
+                            distinct[field] = None
+        fields = sorted(f for f, seen in distinct.items() if seen is not None and len(seen) >= 2)
+        return {"namespace": ns, "total": total, "sampled": len(points),
+                "explained": [round(v, 4) for v in projection["explained"]], "points": points,
+                "colorFields": fields}
+
     def describe_stats(self, filter: dict | None = None) -> dict:
         if filter is not None and not isinstance(filter, dict):
             raise InvalidArgument("filter must be an object")
@@ -375,6 +416,31 @@ class Index:
                 values.append(np.frombuffer(vals, dtype=np.float32, count=dim))
                 metas.append(orjson.loads(metadata) if metadata else None)
         flush()
+
+
+_LABEL_FIELDS = ("title", "name", "label", "heading", "headline", "text", "summary", "description")
+
+
+def _label(metadata: dict | None) -> str | None:
+    """The field a person would call a record by, trimmed for a tooltip."""
+    for field in _LABEL_FIELDS:
+        value = (metadata or {}).get(field)
+        if isinstance(value, str) and value.strip():
+            return value if len(value) <= 90 else value[:89] + "…"
+    return None
+
+
+def _group(value) -> str | None:
+    """A metadata value as a colour group: short strings, booleans and whole numbers."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, str) and value.strip() and len(value) <= 40:
+        return value
+    return None
 
 
 def _match_dict(m: Match, include_values: bool, include_metadata: bool) -> dict:

@@ -1,20 +1,40 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { api, type ApiKey, type IndexInfo, type Role } from "../api";
-import { IconCheck, IconKey, IconLock, IconPlus, IconSearch, IconTrash } from "../icons";
-import { ROLE_LABEL, fmtRelative, go, usePoll } from "../lib";
-import { Badge, Button, Card, Choice, CopyButton, Empty, ErrorNote, Field, PageHeader, Sheet, Skeleton, useToast } from "../ui";
+import { IconAlert, IconCheck, IconCopy, IconKey, IconLock, IconMore, IconPlus, IconSearch, IconShield, IconTrash, IconX } from "../icons";
+import { ROLE_LABEL, ROLE_RANK, copyText, fmtRelative, go, usePoll } from "../lib";
+import { Badge, Button, Card, Choice, CopyButton, Empty, ErrorNote, Field, IconButton, Menu, MenuDivider, MenuItem, PageHeader, Sheet, Skeleton, useToast } from "../ui";
 
 const ROLES: { value: Role; title: string; detail: string }[] = [
-  { value: "read", title: "Read", detail: "Query, fetch, list and read stats." },
-  { value: "write", title: "Read & write", detail: "Everything in Read, plus upsert, update and delete." },
-  { value: "admin", title: "Admin", detail: "Everything, including creating indexes and managing keys." },
+  { value: "read", title: "Read", detail: "For search services and dashboards." },
+  { value: "write", title: "Read & write", detail: "For ingestion jobs and apps that update data." },
+  { value: "admin", title: "Admin", detail: "For operators. Can create indexes and manage keys." },
 ];
+
+const OPERATIONS: { label: string; needs: Role }[] = [
+  { label: "Query, fetch and list vectors", needs: "read" },
+  { label: "Read index stats and the vector map", needs: "read" },
+  { label: "Upsert, update and delete vectors", needs: "write" },
+  { label: "Create, configure and delete indexes", needs: "admin" },
+  { label: "Manage API keys and read the audit log", needs: "admin" },
+];
+
+const EXPIRY = [
+  { value: "7", label: "7 days" },
+  { value: "30", label: "30 days" },
+  { value: "90", label: "90 days" },
+  { value: "365", label: "1 year" },
+  { value: "never", label: "Never" },
+] as const;
+type Expiry = (typeof EXPIRY)[number]["value"];
+
+const now = () => Date.now() / 1000;
+const expired = (k: ApiKey) => k.expiresAt != null && k.expiresAt <= now();
 
 export default function Keys({ openNew, indexes }: { openNew: boolean; indexes: IndexInfo[] }) {
   const toast = useToast();
   const { data, error, reload } = usePoll(api.keys, 20000);
   const [creating, setCreating] = useState(openNew);
-  const [confirming, setConfirming] = useState<string>();
+  const [confirming, setConfirming] = useState<ApiKey>();
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -22,10 +42,6 @@ export default function Keys({ openNew, indexes }: { openNew: boolean; indexes: 
   }, [openNew]);
 
   async function revoke(key: ApiKey) {
-    if (confirming !== key.id) {
-      setConfirming(key.id);
-      return;
-    }
     try {
       await api.revokeKey(key.id);
       toast(`Revoked “${key.name}”`, "good");
@@ -37,24 +53,28 @@ export default function Keys({ openNew, indexes }: { openNew: boolean; indexes: 
   }
 
   const keys = data?.keys ?? [];
-  const shown = keys.filter((k) => `${k.name} ${k.id} ${k.prefix ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()));
-  const dayAgo = Date.now() / 1000 - 86400;
+  const managed = keys.filter((k) => k.managed);
+  const shown = keys.filter((k) => `${k.name} ${k.id} ${k.prefix ?? ""} ${k.role}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const soon = managed.filter((k) => k.expiresAt != null && !expired(k) && k.expiresAt - now() < 30 * 86400).length;
   const summary = [
-    { label: "Active keys", value: keys.length, hint: `${keys.filter((k) => !k.managed).length} from the environment` },
-    { label: "Admin keys", value: keys.filter((k) => k.role === "admin").length, hint: "Full access" },
-    { label: "Scoped to indexes", value: keys.filter((k) => k.indexes).length, hint: "Limited blast radius" },
-    { label: "Used in the last day", value: keys.filter((k) => (k.lastUsedAt ?? 0) > dayAgo).length, hint: "Managed keys" },
+    { label: "Active keys", value: keys.filter((k) => !expired(k)).length, hint: `${keys.length - managed.length} from the environment`, tone: "" },
+    { label: "Expiring in 30 days", value: soon, hint: soon ? "Rotate before they lapse" : "Nothing due", tone: soon ? "warn" : "" },
+    { label: "Never expire", value: managed.filter((k) => k.expiresAt == null).length, hint: "Managed keys without an expiry", tone: "" },
+    { label: "Scoped to indexes", value: managed.filter((k) => k.indexes).length, hint: "Limited blast radius", tone: "" },
   ];
 
   return (
     <>
       <PageHeader title="API Keys"
         subtitle="Keys authenticate the SDK, the Pinecone client and this app. Each is shown once; only a hash is stored."
-        actions={<Button variant="primary" icon={<IconPlus size={17} />} onClick={() => setCreating(true)}>Create key</Button>} />
+        actions={<>
+          <a className="btn btn-secondary btn-md" href="#/docs/guides/authentication">How keys work</a>
+          <Button variant="primary" icon={<IconPlus size={17} />} onClick={() => setCreating(true)}>Create key</Button>
+        </>} />
 
       <div className="mini-stats">
         {summary.map((s) => (
-          <div key={s.label} className="mini-stat">
+          <div key={s.label} className={`mini-stat ${s.tone}`}>
             <span>{s.label}</span>
             <b>{data ? s.value : "—"}</b>
             <small>{s.hint}</small>
@@ -65,13 +85,21 @@ export default function Keys({ openNew, indexes }: { openNew: boolean; indexes: 
       {!data ? (
         error ? <ErrorNote error={error} /> : <Skeleton height={260} radius={16} />
       ) : (
-        <Card icon={<IconKey size={16} />} title="All keys" subtitle="Revoking a key takes effect immediately and signs out its sessions" flush
+        <Card icon={<IconKey size={16} />} title="All keys" subtitle="Revoking a key takes effect immediately and ends its sessions" flush
           actions={keys.length > 0 && (
             <div className="search-field">
               <IconSearch size={15} />
               <input aria-label="Search keys" placeholder="Search keys" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
           )}>
+          {confirming && (
+            <div className="confirm-bar" role="alert">
+              <IconAlert size={18} />
+              <span>Revoke <b>{confirming.name}</b>? Apps using it stop working immediately and its sessions end.</span>
+              <Button size="sm" onClick={() => setConfirming(undefined)}>Cancel</Button>
+              <Button size="sm" variant="danger-solid" icon={<IconTrash size={15} />} onClick={() => void revoke(confirming)}>Revoke key</Button>
+            </div>
+          )}
           {keys.length === 0 ? (
             <Empty icon={<IconKey size={22} />} title="No keys yet"
               action={<Button variant="primary" icon={<IconPlus size={16} />} onClick={() => setCreating(true)}>Create a key</Button>}>
@@ -81,32 +109,56 @@ export default function Keys({ openNew, indexes }: { openNew: boolean; indexes: 
             <div className="table-wrap">
               <table className="table">
                 <thead>
-                  <tr><th>Name</th><th>Key</th><th>Access</th><th>Indexes</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr>
+                  <tr><th>Name</th><th>Secret</th><th>Access</th><th>Scope</th><th>Last used</th><th>Expires</th><th>Status</th><th /></tr>
                 </thead>
                 <tbody>
-                  {shown.map((k) => (
-                    <tr key={k.id} onMouseLeave={() => confirming === k.id && setConfirming(undefined)}>
-                      <td>
-                        <div className="entity">
-                          <span className={`key-glyph ${k.managed ? "" : "env"}`}>{k.managed ? <IconKey size={16} /> : <IconLock size={16} />}</span>
-                          <div><b>{k.name}</b><span>{k.id}</span></div>
-                        </div>
-                      </td>
-                      <td>{k.prefix ? <span className="secret-prefix">{k.prefix}••••</span> : <span className="muted">NEEDLEDB_API_KEY</span>}</td>
-                      <td>{ROLE_LABEL[k.role]}</td>
-                      <td>{k.indexes ? k.indexes.join(", ") : <span className="muted">All</span>}</td>
-                      <td className="muted">{k.managed ? fmtRelative(k.createdAt) : "—"}</td>
-                      <td className="muted">{k.managed ? fmtRelative(k.lastUsedAt) : "—"}</td>
-                      <td>{k.managed ? <Badge tone="good">Active</Badge> : <Badge>Environment</Badge>}</td>
-                      <td className="num">
-                        {k.managed && (
-                          <Button size="sm" variant={confirming === k.id ? "danger-solid" : "danger"} icon={<IconTrash size={15} />} onClick={() => void revoke(k)}>
-                            {confirming === k.id ? "Confirm" : "Revoke"}
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {shown.map((k) => {
+                    const lapsed = expired(k);
+                    const recent = (k.lastUsedAt ?? 0) > now() - 86400;
+                    return (
+                      <tr key={k.id} className={lapsed ? "row-muted" : ""}>
+                        <td>
+                          <div className="entity">
+                            <span className={`key-glyph ${k.managed ? "" : "env"}`}>{k.managed ? <IconKey size={16} /> : <IconLock size={16} />}</span>
+                            <div><b>{k.name}</b><span>{k.managed ? k.id : "Set by NEEDLEDB_API_KEY"}</span></div>
+                          </div>
+                        </td>
+                        <td>{k.prefix ? <span className="secret-prefix">{k.prefix}<i>••••••••</i></span> : <span className="muted">—</span>}</td>
+                        <td><span className={`role role-${k.role}`}>{ROLE_LABEL[k.role]}</span></td>
+                        <td>{k.indexes ? <span className="scope">{k.indexes.join(", ")}</span> : <span className="muted">All indexes</span>}</td>
+                        <td>
+                          {k.managed
+                            ? <span className="last-used"><i className={recent ? "on" : ""} />{fmtRelative(k.lastUsedAt)}</span>
+                            : <span className="muted">—</span>}
+                        </td>
+                        <td>
+                          {!k.managed ? <span className="muted">—</span>
+                            : k.expiresAt == null ? <span className="expiry-never">Never</span>
+                              : lapsed ? <span className="bad">{fmtRelative(k.expiresAt)}</span>
+                                : <span>{fmtRelative(k.expiresAt)}</span>}
+                        </td>
+                        <td>
+                          {!k.managed ? <Badge>Environment</Badge> : lapsed ? <Badge tone="bad">Expired</Badge> : <Badge tone="good">Active</Badge>}
+                        </td>
+                        <td className="num">
+                          {k.managed && (
+                            <Menu align="end" trigger={({ open, toggle }) => (
+                              <IconButton label="Key actions" onClick={toggle} aria-expanded={open}><IconMore size={18} /></IconButton>
+                            )}>
+                              {(close) => (
+                                <>
+                                  <MenuItem icon={<IconCopy size={16} />} onClick={() => { void copyText(k.id); toast("Key id copied"); close(); }}>Copy key id</MenuItem>
+                                  <MenuItem icon={<IconShield size={16} />} onClick={() => { go(`/security?q=${encodeURIComponent(k.name)}`); close(); }}>View activity</MenuItem>
+                                  <MenuDivider />
+                                  <MenuItem tone="bad" icon={<IconTrash size={16} />} onClick={() => { setConfirming(k); close(); }}>Revoke key</MenuItem>
+                                </>
+                              )}
+                            </Menu>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {shown.length === 0 && <tr><td colSpan={8} className="table-empty">No keys match “{query}”.</td></tr>}
                 </tbody>
               </table>
@@ -135,6 +187,7 @@ function CreateKeySheet({ open, indexes, onClose, onCreated }: {
   const [role, setRole] = useState<Role>("read");
   const [scope, setScope] = useState<"all" | "some">("all");
   const [chosen, setChosen] = useState<string[]>([]);
+  const [expiry, setExpiry] = useState<Expiry>("90");
   const [created, setCreated] = useState<ApiKey & { key: string }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -145,6 +198,7 @@ function CreateKeySheet({ open, indexes, onClose, onCreated }: {
     setRole("read");
     setScope("all");
     setChosen([]);
+    setExpiry("90");
     setCreated(undefined);
     setError(undefined);
   }, [open]);
@@ -158,7 +212,10 @@ function CreateKeySheet({ open, indexes, onClose, onCreated }: {
     setBusy(true);
     setError(undefined);
     try {
-      setCreated(await api.createKey({ name: name.trim(), role, indexes: scoped ? chosen : undefined }));
+      setCreated(await api.createKey({
+        name: name.trim(), role, indexes: scoped ? chosen : undefined,
+        expiresInDays: expiry === "never" ? undefined : Number(expiry),
+      }));
       onCreated();
     } catch (err) {
       setError((err as Error).message);
@@ -173,12 +230,15 @@ function CreateKeySheet({ open, indexes, onClose, onCreated }: {
         <div className="reveal">
           <div className="reveal-icon"><IconCheck size={28} /></div>
           <h3>{created.name}</h3>
-          <p>{ROLE_LABEL[created.role]} access{created.indexes ? ` to ${created.indexes.join(", ")}` : " to every index"}.</p>
+          <p>
+            {ROLE_LABEL[created.role]} access{created.indexes ? ` to ${created.indexes.join(", ")}` : " to every index"} ·{" "}
+            {created.expiresAt ? `expires ${fmtRelative(created.expiresAt).toLowerCase()}` : "never expires"}
+          </p>
           <div className="secret">
             <code>{created.key}</code>
             <CopyButton text={created.key} variant="primary" />
           </div>
-          <div className="note note-warn">Copy it now. NeedleDB stores only a hash — this key can't be shown again.</div>
+          <div className="note note-warn">Copy it now and store it in your secret manager. NeedleDB keeps only a hash — this key can't be shown again.</div>
           <pre className="code">{`export NEEDLEDB_API_KEY="${created.key}"\n\nfrom needledb import NeedleDB\ndb = NeedleDB("${window.location.origin}")`}</pre>
         </div>
       </Sheet>
@@ -186,7 +246,7 @@ function CreateKeySheet({ open, indexes, onClose, onCreated }: {
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Create API key" subtitle="Give each app or person their own key."
+    <Sheet open={open} onClose={onClose} title="Create API key" subtitle="Give each app or person their own key, with only the access it needs."
       footer={<>
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" type="submit" form="create-key" disabled={busy || !valid}>{busy ? "Creating…" : "Create key"}</Button>
@@ -207,10 +267,21 @@ function CreateKeySheet({ open, indexes, onClose, onCreated }: {
               </button>
             ))}
           </div>
+          <div className="perm-matrix" aria-label="What this key can do">
+            {OPERATIONS.map((op) => {
+              const allowed = ROLE_RANK[role] >= ROLE_RANK[op.needs];
+              return (
+                <div key={op.label} className={`perm ${allowed ? "on" : ""}`}>
+                  <span className="perm-icon">{allowed ? <IconCheck size={13} /> : <IconX size={13} />}</span>
+                  {op.label}
+                </div>
+              );
+            })}
+          </div>
         </Field>
 
         {role !== "admin" && (
-          <Field label="Indexes" hint={scope === "some" ? "Other indexes will look like they don't exist to this key." : undefined}>
+          <Field label="Scope" hint={scope === "some" ? "Other indexes look like they don't exist to this key." : undefined}>
             <Choice label="Index access" value={scope} onChange={setScope} options={[
               { value: "all", label: "All indexes" },
               { value: "some", label: "Only selected" },
@@ -231,6 +302,13 @@ function CreateKeySheet({ open, indexes, onClose, onCreated }: {
             )}
           </Field>
         )}
+
+        <Field label="Expiration" hint={expiry === "never" ? undefined : "The key stops working after this. Create a new one before then."}>
+          <Choice label="Expiration" value={expiry} onChange={setExpiry} options={EXPIRY.map((e) => ({ value: e.value, label: e.label }))} />
+          {expiry === "never" && (
+            <div className="note note-warn">A key that never expires stays valid until someone revokes it. Prefer an expiry for production apps.</div>
+          )}
+        </Field>
         <ErrorNote error={error} />
       </form>
     </Sheet>

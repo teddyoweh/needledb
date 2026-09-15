@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Me, type Principal, type Role, onSignedOut } from "./api";
+import Docs from "./docs/Docs";
 import { BrandMark } from "./icons";
-import { ROLE_RANK } from "./lib";
+import { ROLE_RANK, useHashRoute } from "./lib";
 import { type Session, SessionContext } from "./session";
 import Shell from "./Shell";
 import SignIn from "./SignIn";
 import { ErrorNote, ToastProvider } from "./ui";
 
 export default function App() {
+  const { parts } = useHashRoute();
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string>();
 
@@ -40,6 +42,9 @@ export default function App() {
       },
     };
   }, [me, refresh]);
+
+  // The docs are public: readable before signing in, and they hold no server data.
+  if (parts[0] === "docs") return <Docs path={parts.slice(1)} signedIn={!!session} />;
 
   if (!me) {
     return (

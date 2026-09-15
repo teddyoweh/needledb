@@ -10,7 +10,7 @@ export default defineConfig({
   build: { outDir: "../needledb/server/static", emptyOutDir: true },
   server: {
     proxy: Object.fromEntries(
-      ["/indexes", "/stats", "/health", "/metrics", "/auth", "/keys", "/docs", "/openapi.json"].map((p) => [p, api]),
+      ["/indexes", "/stats", "/health", "/metrics", "/auth", "/keys", "/events", "/docs", "/openapi.json"].map((p) => [p, api]),
     ),
   },
 });

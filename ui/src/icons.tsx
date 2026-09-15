@@ -56,17 +56,24 @@ export const IconAlert = icon(<><path d="M10.3 4.2 2.9 17a2 2 0 0 0 1.7 3h14.8a2
 export const IconServer = icon(<><rect x="3.5" y="4" width="17" height="7" rx="2" /><rect x="3.5" y="13" width="17" height="7" rx="2" /><path d="M7.5 7.5h.01M7.5 16.5h.01" strokeWidth={2.5} /></>);
 export const IconGrid = icon(<><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></>);
 
-/** The app mark: a needle threading one point out of many. */
+export const IconMore = icon(<><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" /></>);
+export const IconInfo = icon(<><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5M12 8h.01" /></>);
+export const IconBulb = icon(<><path d="M9 18h6M10 21h4" /><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1.1 1.3 1.1 2.2h5c0-.9.5-1.7 1.1-2.2A6 6 0 0 0 12 3Z" /></>);
+export const IconDownload = icon(<><path d="M12 4v11M7 10l5 5 5-5" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></>);
+export const IconCode = icon(<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" />);
+export const IconRocket = icon(<><path d="M5 15c-1.5 1.5-2 4-2 6 2 0 4.5-.5 6-2" /><path d="M9 18 6 15c1-4 4-9.5 12-12-2.5 8-8 11-9 15Z" /><circle cx="14.5" cy="9.5" r="1.5" /></>);
+
+/** The mark: an N whose right stroke is a needle, pointing at the one vector it found. */
 export function BrandMark({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="9" fill="#1d1d1f" />
-      <circle cx="9.5" cy="10" r="1.4" fill="#6e6e73" />
-      <circle cx="22.5" cy="23" r="1.4" fill="#6e6e73" />
-      <circle cx="10" cy="22" r="1.4" fill="#6e6e73" />
-      <path d="M8.6 24.4 20.4 11.6" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
-      <ellipse cx="22.3" cy="9.5" rx="2.7" ry="1.55" transform="rotate(-47 22.3 9.5)" fill="none" stroke="#fff" strokeWidth="1.7" />
-      <circle cx="22.3" cy="9.5" r="4.9" fill="none" stroke="#2997ff" strokeWidth="1.3" opacity=".9" />
+      <rect width="32" height="32" rx="9" fill="#111114" />
+      <rect x="8.4" y="12" width="3.4" height="13.6" rx="1.7" fill="#fff" />
+      <path d="M10.1 13.7 21.9 24" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" />
+      <path d="M20.2 25.6V14.3L21.9 9.9l1.7 4.4v11.3z" fill="#fff" />
+      <ellipse cx="21.9" cy="17.4" rx=".72" ry="1.9" fill="#111114" />
+      <circle cx="21.9" cy="6.1" r="3.4" fill="#2f6bff" opacity=".25" />
+      <circle cx="21.9" cy="6.1" r="1.7" fill="#5b8cff" />
     </svg>
   );
 }

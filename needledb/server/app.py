@@ -413,8 +413,10 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     async def create_key(request: Request):
         need(request, "admin")
         body = _parse(await request.body())
-        info, key = store.create_key(body.get("name"), body.get("role", "read"), body.get("indexes"))
-        record(request, "key.created", info["name"], {"id": info["id"], "role": info["role"], "indexes": info["indexes"]})
+        info, key = store.create_key(body.get("name"), body.get("role", "read"), body.get("indexes"),
+                                     body.get("expiresInDays"))
+        record(request, "key.created", info["name"], {"id": info["id"], "role": info["role"], "indexes": info["indexes"],
+                                                      "expiresInDays": body.get("expiresInDays")})
         return _json({**info, "key": key}, 201)
 
     @app.delete("/keys/{key_id}")
@@ -608,6 +610,13 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
                            paginationToken: str | None = None, namespace: str | None = None):
         index = index_for(request, name, "read")
         return _json(await run(index.list_ids, prefix, limit, paginationToken, namespace))
+
+    @app.get("/indexes/{name}/map")
+    async def vector_map(name: str, request: Request, namespace: str | None = None, limit: int = 1500,
+                         color_by: str | None = None):
+        index = index_for(request, name, "read")
+        result = await run(lambda: orjson.dumps(index.vector_map(namespace, limit, color_by or None)))
+        return Response(result, media_type="application/json")
 
     @app.post("/indexes/{name}/describe_index_stats")
     async def describe_stats_post(name: str, request: Request):

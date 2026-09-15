@@ -77,6 +77,21 @@ def test_keys_are_stored_hashed_and_revocable(client, anon, app, tmp_path):
     assert client.delete("/keys/env-1").status_code == 400
 
 
+def test_keys_can_expire(client, anon, app):
+    assert client.post("/keys", json={"name": "bad", "role": "read", "expiresInDays": 0}).status_code == 400
+    info = client.post("/keys", json={"name": "temp", "role": "read", "expiresInDays": 30}).json()
+    assert 29 * 86400 < info["expiresAt"] - info["createdAt"] <= 30 * 86400
+    assert anon.get("/indexes", headers={"Api-Key": info["key"]}).status_code == 200
+
+    store = app.state.keys                                   # let it lapse
+    store._conn.execute("update api_keys set expires_at = 1 where id = ?", (info["id"],))
+    store._by_digest.clear()
+    assert anon.get("/indexes", headers={"Api-Key": info["key"]}).status_code == 401
+    listed = next(k for k in client.get("/keys").json()["keys"] if k["id"] == info["id"])
+    assert listed["expiresAt"] == 1                          # still listed, so an admin can see and remove it
+    assert client.delete(f"/keys/{info['id']}").status_code == 200
+
+
 def test_session_login_logout_and_csrf(app):
     with TestClient(app) as browser:
         bad = browser.post("/auth/login", json={"apiKey": "nope"})

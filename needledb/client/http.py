@@ -88,11 +88,14 @@ class NeedleDB:
 
     # ---- API keys (admin) ------------------------------------------------------------
 
-    def create_key(self, name: str, role: str = "read", indexes: list[str] | None = None) -> Obj:
+    def create_key(self, name: str, role: str = "read", indexes: list[str] | None = None,
+                   expires_in_days: int | None = None) -> Obj:
         """Create a key. The returned `key` is the only time the secret is available."""
         body = {"name": name, "role": role}
         if indexes is not None:
             body["indexes"] = indexes
+        if expires_in_days is not None:
+            body["expiresInDays"] = expires_in_days
         return wrap(self.request("POST", "/keys", body))
 
     def list_keys(self) -> list[Obj]:

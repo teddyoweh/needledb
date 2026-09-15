@@ -161,6 +161,43 @@ def test_write_validation(registry):
         registry.create_index(IndexConfig(name="valid", dimension=3))
 
 
+def test_vector_map_projects_a_sample(registry):
+    rng = np.random.default_rng(3)
+    centers = rng.normal(size=(3, 24)) * 6
+    x = np.vstack([c + rng.normal(size=(200, 24)) for c in centers]).astype(np.float32)
+    index = registry.create_index(IndexConfig(name="mapped", dimension=24, metric="euclidean"))
+    kinds = ["alpha", "beta", "gamma"]
+    index.upsert([{"id": f"p{i}", "values": x[i], "metadata": {"title": f"Point {i}", "kind": kinds[i // 200]}}
+                  for i in range(600)])
+
+    full = index.vector_map(limit=5000)
+    assert full["total"] == 600 and full["sampled"] == 600 and len(full["points"]) == 600
+    coords = np.array([[p["x"], p["y"]] for p in full["points"]])
+    assert np.abs(coords).max() <= 1.0 + 1e-6
+    assert full["points"][0]["label"].startswith("Point ")
+    assert sum(full["explained"]) > 0.5                 # three tight clusters: two axes explain most variance
+    # Up to six colours for three real clusters: a cluster may take two colours,
+    # but a colour must never mix two real clusters.
+    labels = np.array([p["cluster"] for p in sorted(full["points"], key=lambda p: int(p["id"][1:]))])
+    truth = np.repeat(np.arange(3), 200)
+    for label in np.unique(labels):
+        members = truth[labels == label]
+        assert np.bincount(members).max() >= 0.95 * len(members)
+
+    assert full["colorFields"] == ["kind"]                  # "title" has 600 distinct values: not a colour
+    coloured = index.vector_map(limit=5000, color_by="kind")
+    assert {p["group"] for p in coloured["points"]} == set(kinds)
+
+    sample = index.vector_map(limit=100)
+    assert sample["sampled"] == 100 and sample["total"] == 600
+    assert index.vector_map(namespace="nowhere")["points"] == []
+    with pytest.raises(InvalidArgument):
+        index.vector_map(limit=0)
+    tiny = registry.create_index(IndexConfig(name="tiny", dimension=1))
+    tiny.upsert([("a", [1.0]), ("b", [2.0])])
+    assert tiny.vector_map()["sampled"] == 2
+
+
 def test_rebuild_replays_concurrent_writes(registry, monkeypatch):
     monkeypatch.setattr(collection_module, "AUTO_HNSW_THRESHOLD", 2_000)
     monkeypatch.setattr(collection_module, "COMPACT_MIN_DEAD", 100)

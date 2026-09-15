@@ -3,6 +3,8 @@ import { api } from "./api";
 import {
   BrandMark,
   IconBook,
+  IconCode,
+  IconExternal,
   IconChevronRight,
   IconChevronsUpDown,
   IconCopy,
@@ -163,7 +165,8 @@ export default function Shell() {
       { id: "a-index", group: "Actions", label: "Create an index", icon: <IconPlus size={18} />, run: () => go("/indexes?new=1") },
       { id: "a-key", group: "Actions", label: "Create an API key", icon: <IconKey size={18} />, run: () => go("/keys?new=1") },
     ] : []),
-    { id: "a-docs", group: "Actions", label: "Open the API reference", icon: <IconBook size={18} />, run: () => window.open("/docs", "_blank", "noopener") },
+    { id: "a-guide", group: "Actions", label: "Read the documentation", icon: <IconBook size={18} />, run: () => go("/docs") },
+    { id: "a-docs", group: "Actions", label: "Open the API explorer", icon: <IconCode size={18} />, run: () => window.open("/docs", "_blank", "noopener") },
     ...(principal.source !== "local" ? [{ id: "a-out", group: "Actions", label: "Sign out", icon: <IconLogOut size={18} />, run: () => void signOut() }] : []),
   ];
 
@@ -176,7 +179,7 @@ export default function Shell() {
     page = can("admin") ? <Keys openNew={params.get("new") === "1"} indexes={list} />
       : <Empty icon={<IconKey size={22} />} title="Admins manage keys">Your key has {ROLE_LABEL[principal.role].toLowerCase()} access.</Empty>;
   } else if (section === "security") {
-    page = <Security />;
+    page = <Security query={params.get("q") ?? ""} />;
   } else if (section === "") {
     page = <Overview />;
   } else {
@@ -227,6 +230,12 @@ export default function Shell() {
           <div className="nav-label">Access</div>
           {can("admin") && <NavItem href="#/keys" icon={<IconKey size={18} />} label="API Keys" active={section === "keys"} />}
           <NavItem href="#/security" icon={<IconShield size={18} />} label="Security" active={section === "security"} />
+
+          <div className="nav-label">Resources</div>
+          <a href="#/docs" className="nav-item"><IconBook size={18} /><span className="nav-text">Documentation</span></a>
+          <a href="/docs" target="_blank" rel="noreferrer" className="nav-item">
+            <IconCode size={18} /><span className="nav-text">API explorer</span><IconExternal size={13} />
+          </a>
 
           {list.length > 0 && <div className="nav-label">Indexes</div>}
           {list.map((i) => (
@@ -296,7 +305,7 @@ export default function Shell() {
                 <span>Search indexes, pages, actions</span>
                 <Kbd>⌘K</Kbd>
               </button>
-              <a className="icon-button" href="/docs" target="_blank" rel="noreferrer" aria-label="API reference" title="API reference">
+              <a className="icon-button" href="#/docs" aria-label="Documentation" title="Documentation">
                 <IconBook size={18} />
               </a>
             </div>

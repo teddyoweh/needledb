@@ -40,6 +40,20 @@ COMPACT_FRACTION = 0.2
 _EXACT_CHUNK = 4_096
 
 
+def _kmeans(x: np.ndarray, k: int, rng: np.random.Generator, iters: int = 30) -> np.ndarray:
+    if k <= 1 or len(x) <= k:
+        return np.zeros(len(x), dtype=np.int64)
+    centers = x[rng.choice(len(x), k, replace=False)]
+    labels = np.zeros(len(x), dtype=np.int64)
+    for _ in range(iters):
+        labels = ((x[:, None, :] - centers[None]) ** 2).sum(-1).argmin(1)
+        moved = np.array([x[labels == j].mean(0) if np.any(labels == j) else centers[j] for j in range(k)])
+        if np.allclose(moved, centers):
+            break
+        centers = moved
+    return labels
+
+
 @dataclass
 class Match:
     id: str
@@ -285,6 +299,38 @@ class Collection:
             ids = ids[bisect.bisect_right(ids, after):]
         page = ids[:limit]
         return page, (page[-1] if len(ids) > limit else None)
+
+    def projection(self, limit: int, seed: int = 0) -> dict | None:
+        """A 2-D picture of a sample of this namespace.
+
+        Randomized PCA (two power iterations) to eight components, the first two as
+        coordinates scaled into [-1, 1], and k-means on all eight for colour. Cheap enough
+        to run per request: a few matrix products over at most `limit` rows.
+        """
+        live = np.flatnonzero(~self._tomb[: self.n])
+        if len(live) == 0:
+            return None
+        rng = np.random.default_rng(seed)
+        slots = np.sort(rng.choice(live, size=min(limit, len(live)), replace=False))
+        x = np.array(self._vectors()[slots], dtype=np.float32)
+        x -= x.mean(axis=0)
+        k = max(1, min(8, x.shape[0], x.shape[1]))
+        y = x @ rng.standard_normal((x.shape[1], k)).astype(np.float32)
+        for _ in range(2):
+            y = x @ (x.T @ y)
+        q, _ = np.linalg.qr(y)
+        _, singular, vt = np.linalg.svd(q.T @ x, full_matrices=False)
+        components = x @ vt[:k].T
+        coords = components[:, :2] if components.shape[1] >= 2 else np.column_stack(
+            [components[:, 0], np.zeros(len(components), np.float32)])
+        scale = float(np.abs(coords).max()) or 1.0
+        total = float((x.astype(np.float64) ** 2).sum()) or 1.0
+        return {
+            "slots": slots,
+            "coords": coords / scale,
+            "clusters": _kmeans(components, min(6, len(slots)), rng),
+            "explained": [float(s) ** 2 / total for s in singular[:2]] + [0.0] * max(0, 2 - len(singular)),
+        }
 
     def count(self, flt: dict | None) -> int:
         if not flt:

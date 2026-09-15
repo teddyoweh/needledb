@@ -220,10 +220,11 @@ export function Tabs({ items, current, label }: { items: { id: string; label: st
   );
 }
 
-export function Menu({ trigger, children, direction = "down", className = "" }: {
+export function Menu({ trigger, children, direction = "down", align = "stretch", className = "" }: {
   trigger: (state: { open: boolean; toggle: () => void }) => ReactNode;
   children: (close: () => void) => ReactNode;
   direction?: "down" | "up";
+  align?: "stretch" | "end";
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -248,7 +249,7 @@ export function Menu({ trigger, children, direction = "down", className = "" }: 
   return (
     <div className={`menu-anchor ${className}`.trim()} ref={ref}>
       {trigger({ open, toggle: () => setOpen((o) => !o) })}
-      {open && <div className={`menu menu-${direction}`} role="menu">{children(() => setOpen(false))}</div>}
+      {open && <div className={`menu menu-${direction} menu-${align}`} role="menu">{children(() => setOpen(false))}</div>}
     </div>
   );
 }

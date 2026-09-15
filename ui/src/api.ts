@@ -39,6 +39,7 @@ export type ApiKey = {
   indexes: string[] | null;
   createdAt: number | null;
   lastUsedAt: number | null;
+  expiresAt: number | null;
   managed: boolean;
 };
 
@@ -53,6 +54,9 @@ export type AuditEvent = {
   ok: boolean;
   detail: Record<string, unknown> | null;
 };
+
+export type MapPoint = { id: string; x: number; y: number; cluster: number; label: string | null; group?: string | null };
+export type VectorMap = { namespace: string; total: number; sampled: number; explained: [number, number]; points: MapPoint[]; colorFields: string[] };
 
 export type IndexInfo = {
   name: string;
@@ -161,7 +165,7 @@ export const api = {
   revokeAllSessions: () => call<object>("POST", "/auth/sessions/revoke-all", {}),
 
   keys: () => call<{ keys: ApiKey[] }>("GET", "/keys"),
-  createKey: (body: { name: string; role: Role; indexes?: string[] }) => call<ApiKey & { key: string }>("POST", "/keys", body),
+  createKey: (body: { name: string; role: Role; indexes?: string[]; expiresInDays?: number }) => call<ApiKey & { key: string }>("POST", "/keys", body),
   revokeKey: (id: string) => call<object>("DELETE", `/keys/${seg(id)}`),
   events: (limit = 50) => call<{ events: AuditEvent[] }>("GET", `/events?limit=${limit}`),
 
@@ -173,6 +177,11 @@ export const api = {
   configure: (name: string, efSearch: number) =>
     call<IndexInfo>("PATCH", `/indexes/${seg(name)}`, { hnsw: { ef_search: efSearch } }),
   deleteIndex: (name: string) => call<object>("DELETE", `/indexes/${seg(name)}`),
+  vectorMap: (name: string, namespace: string, limit = 1500, colorBy?: string | null) => {
+    const qs = new URLSearchParams({ namespace, limit: String(limit) });
+    if (colorBy) qs.set("color_by", colorBy);
+    return call<VectorMap>("GET", `/indexes/${seg(name)}/map?${qs}`);
+  },
   describeStats: (name: string) => call<IndexStats>("POST", `/indexes/${seg(name)}/describe_index_stats`, {}),
   query: (name: string, body: Record<string, unknown>) => call<QueryResult>("POST", `/indexes/${seg(name)}/query`, body),
   list: (name: string, params: { namespace: string; prefix?: string; limit: number; paginationToken?: string }) => {
