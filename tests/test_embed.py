@@ -103,8 +103,10 @@ def _mock(handler):
 @pytest.fixture(autouse=True)
 def _reset_http():
     embed.clear_cache()
+    embed.set_key_resolver(None)
     yield
     embed.set_http_client(None)
+    embed.set_key_resolver(None)
 
 
 PROVIDER_CASES = [

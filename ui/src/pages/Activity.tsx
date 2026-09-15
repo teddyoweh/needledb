@@ -5,7 +5,7 @@ import { Empty, Skeleton } from "../ui";
 
 export function eventIcon(e: AuditEvent, size = 15) {
   if (!e.ok || e.action === "auth.blocked") return <IconAlert size={size} />;
-  if (e.action.startsWith("key.")) return <IconKey size={size} />;
+  if (e.action.startsWith("key.") || e.action.startsWith("provider.")) return <IconKey size={size} />;
   if (e.action.startsWith("index.")) return <IconIndexes size={size} />;
   return <IconLogIn size={size} />;
 }

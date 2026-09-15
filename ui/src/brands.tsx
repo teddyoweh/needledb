@@ -40,18 +40,30 @@ export function BrandLogo({ vendor, size = 18, tile = false }: { vendor?: string
 }
 
 let pending: Promise<EmbeddingCatalog> | null = null;
+const listeners = new Set<(catalog: EmbeddingCatalog) => void>();
 
-/** The server's embedding providers and models, fetched once per page load. */
+/** Fetch the catalog again, e.g. after a provider key is added, and update every view using it. */
+export function refreshEmbeddingCatalog() {
+  pending = api.embeddingModels();
+  pending.then((c) => listeners.forEach((notify) => notify(c))).catch(() => {
+    pending = null;
+  });
+}
+
+/** The server's embedding providers and models, shared across the app. */
 export function useEmbeddingCatalog() {
   const [catalog, setCatalog] = useState<EmbeddingCatalog>();
   useEffect(() => {
     let live = true;
+    const notify = (c: EmbeddingCatalog) => live && setCatalog(c);
+    listeners.add(notify);
     pending ??= api.embeddingModels();
-    pending.then((c) => live && setCatalog(c)).catch(() => {
+    pending.then(notify).catch(() => {
       pending = null;
     });
     return () => {
       live = false;
+      listeners.delete(notify);
     };
   }, []);
   return catalog;

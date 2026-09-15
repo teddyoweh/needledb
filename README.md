@@ -149,9 +149,11 @@ index.upsert([{"id": "sku-1", "text": "Waterproof hiking boots", "metadata": {"p
 index.search("shoes for rainy hikes", top_k=5)
 ```
 
-- Hosted: OpenAI, Cohere, Voyage AI, Google Gemini, Mistral AI and Jina AI, with keys read from
-  the server's environment (`OPENAI_API_KEY`, `COHERE_API_KEY`, `VOYAGE_API_KEY`, `GEMINI_API_KEY`,
-  `MISTRAL_API_KEY`, `JINA_API_KEY`). Keys are never stored with an index or returned by the API.
+- Hosted: OpenAI, Cohere, Voyage AI, Google Gemini, Mistral AI and Jina AI. Admins add keys in the
+  web app under **Settings** (checked, then stored in `_system/providers.json` with owner-only
+  permissions), or set them in the environment (`OPENAI_API_KEY`, `COHERE_API_KEY`, `VOYAGE_API_KEY`,
+  `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `JINA_API_KEY`), which takes precedence. Keys are never stored
+  with an index or returned by the API.
 - Local: BGE, MiniLM, Nomic, Arctic, mxbai and E5 on the server's CPU with
   `pip install "needledb[local]"` — text never leaves the machine.
 - `GET /embeddings/models` lists every model and whether its provider is ready.

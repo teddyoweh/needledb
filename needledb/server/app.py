@@ -29,8 +29,12 @@ from .. import __version__
 from ..core import IndexConfig, Registry
 from ..core.metrics import Metrics
 from ..embed import catalog as embed_catalog
+from ..embed import PROVIDERS as EMBED_PROVIDERS
+from ..embed import available as provider_available
+from ..embed import check_provider, key_source, set_key_resolver
 from ..embed import compare as embed_compare
 from ..errors import (
+    FailedPrecondition,
     InvalidArgument,
     NeedleError,
     NotFound,
@@ -39,6 +43,7 @@ from ..errors import (
     Unauthenticated,
 )
 from .audit import AuditLog
+from .providers import ProviderKeys
 from .auth import LOCAL, SESSION_COOKIE, SESSION_TTL_S, KeyStore, Lockout, Principal
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -253,6 +258,8 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
                            "`needledb keys create`), or use --no-auth on localhost for development")
 
     audit = AuditLog(data_dir / "_system")
+    provider_keys = ProviderKeys(data_dir / "_system")
+    set_key_resolver(provider_keys.get)
     registry = Registry(data_dir)
     metrics = Metrics()
     lockout = Lockout()
@@ -271,6 +278,7 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     app.state.metrics = metrics
     app.state.keys = store
     app.state.audit = audit
+    app.state.provider_keys = provider_keys
     app.add_middleware(_Gate, store=store, lockout=lockout, audit=audit, auth_enabled=auth_enabled,
                        metrics=metrics, max_body=max_body, trust_proxy=trust_proxy)
 
@@ -485,6 +493,58 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     async def embedding_models(request: Request):
         need(request, "read")
         return _json(embed_catalog())
+
+    # ---- settings: embedding provider keys --------------------------------------------
+
+    def provider_row(provider) -> dict:
+        return {"id": provider.id, "name": provider.name, "local": provider.local, "env": list(provider.env),
+                "available": provider_available(provider), "source": key_source(provider),
+                "saved": provider_keys.describe(provider.id)}
+
+    def hosted_provider(provider_id: str):
+        provider = EMBED_PROVIDERS.get(provider_id)
+        if provider is None:
+            raise NotFound(f"no embedding provider named {provider_id!r}")
+        if provider.local:
+            raise InvalidArgument("local models run on this server and don't use a key")
+        return provider
+
+    @app.get("/settings/providers")
+    async def provider_settings(request: Request):
+        need(request, "admin")
+        return _json({"providers": [provider_row(p) for p in EMBED_PROVIDERS.values()]})
+
+    @app.post("/settings/providers/{provider_id}")
+    async def save_provider_key(provider_id: str, request: Request):
+        principal = need(request, "admin")
+        provider = hosted_provider(provider_id)
+        key = _parse(await request.body()).get("apiKey")
+        if not isinstance(key, str) or not key.strip() or len(key.strip()) > 1024 or any(c.isspace() for c in key.strip()):
+            raise InvalidArgument("apiKey must be the provider's API key, with no spaces")
+        if key_source(provider) == "environment":
+            raise FailedPrecondition(f"{provider.name}'s key is set in the server's environment, which takes precedence; change it there")
+        await run(provider_keys.set, provider.id, key.strip(), principal.name)
+        record(request, "provider.key_set", provider.name, {"provider": provider.id, "hint": key.strip()[-4:]})
+        return _json(provider_row(provider))
+
+    @app.delete("/settings/providers/{provider_id}")
+    async def remove_provider_key(provider_id: str, request: Request):
+        need(request, "admin")
+        provider = hosted_provider(provider_id)
+        if await run(provider_keys.remove, provider.id):
+            record(request, "provider.key_removed", provider.name, {"provider": provider.id})
+        return _json(provider_row(provider))
+
+    @app.post("/settings/providers/{provider_id}/test")
+    async def test_provider_key(provider_id: str, request: Request):
+        need(request, "admin")
+        if provider_id not in EMBED_PROVIDERS:
+            raise NotFound(f"no embedding provider named {provider_id!r}")
+        key = _parse(await request.body()).get("apiKey")
+        if key is not None and (not isinstance(key, str) or not key.strip()):
+            raise InvalidArgument("apiKey must be a non-empty string when given")
+        result = await run(lambda: check_provider(provider_id, key.strip() if key else None))
+        return _json(result)
 
     @app.post("/playground/compare")
     async def playground_compare(request: Request):

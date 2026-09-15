@@ -59,7 +59,17 @@ export type MapPoint = { id: string; x: number; y: number; cluster: number; labe
 export type VectorMap = { namespace: string; total: number; sampled: number; explained: [number, number]; points: MapPoint[]; colorFields: string[] };
 
 export type EmbedConfig = { provider: string; model: string; field: string };
-export type EmbeddingProvider = { id: string; name: string; available: boolean; env: string[]; local: boolean };
+export type EmbeddingProvider = { id: string; name: string; available: boolean; env: string[]; local: boolean; keySource?: "environment" | "app" | null };
+export type ProviderSetting = {
+  id: string;
+  name: string;
+  local: boolean;
+  env: string[];
+  available: boolean;
+  source: "environment" | "app" | null;
+  saved: { hint: string; setAt: number; setBy: string | null } | null;
+};
+export type ProviderCheck = { ok: boolean; model?: string; latencyMs?: number; code?: string; message?: string };
 export type EmbeddingModel = {
   provider: string;
   id: string;
@@ -202,6 +212,11 @@ export const api = {
   createIndex: (body: { name: string; dimension: number; metric: Metric; index_type: IndexType; hnsw: IndexInfo["hnsw"]; embed?: { provider: string; model: string } }) =>
     call<IndexInfo>("POST", "/indexes", body),
   embeddingModels: () => call<EmbeddingCatalog>("GET", "/embeddings/models"),
+  providerSettings: () => call<{ providers: ProviderSetting[] }>("GET", "/settings/providers"),
+  setProviderKey: (id: string, apiKey: string) => call<ProviderSetting>("POST", `/settings/providers/${seg(id)}`, { apiKey }),
+  removeProviderKey: (id: string) => call<ProviderSetting>("DELETE", `/settings/providers/${seg(id)}`),
+  testProvider: (id: string, apiKey?: string) =>
+    call<ProviderCheck>("POST", `/settings/providers/${seg(id)}/test`, apiKey ? { apiKey } : {}),
   compareModels: (body: { query: string; documents: string[]; models: { provider: string; model: string }[]; topK: number }) =>
     call<{ results: CompareResult[] }>("POST", "/playground/compare", body),
   setEmbedding: (name: string, embed: { provider: string; model: string; field: string } | null) =>

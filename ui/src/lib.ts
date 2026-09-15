@@ -24,7 +24,12 @@ export function describeEvent(e: AuditEvent): string {
     case "key.revoked": return `${who} revoked key ${target}`;
     case "index.created": return `${who} created index ${target}`;
     case "index.deleted": return `${who} deleted index ${target}`;
-    case "index.configured": return `${who} set ${target} search width to ${String(e.detail?.ef_search ?? "")}`;
+    case "index.configured":
+      return e.detail && "embed" in e.detail
+        ? e.detail.embed ? `${who} connected ${String(e.detail.embed)} to ${target}` : `${who} disconnected the model from ${target}`
+        : `${who} set ${target} search width to ${String(e.detail?.ef_search ?? "")}`;
+    case "provider.key_set": return `${who} saved a ${e.target ?? "provider"} key ending ${String(e.detail?.hint ?? "")}`;
+    case "provider.key_removed": return `${who} removed the ${e.target ?? "provider"} key`;
     default: return e.action;
   }
 }

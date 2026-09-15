@@ -228,7 +228,7 @@ docker compose -f deploy/docker-compose.yml up -d`} />
           [<C>NEEDLEDB_SESSION_SECRET</C>, "generated", "Pin the session signing secret."],
           [<C>NEEDLEDB_MAX_BODY_MB</C>, <C>64</C>, "Largest request body accepted."],
           [<C>NEEDLEDB_SNAPSHOT_EVERY</C>, <C>50000</C>, "Writes between automatic snapshots."],
-          [<><C>OPENAI_API_KEY</C> and others</>, "—", <>Keys for hosted embedding models. See <a href={g("text-search")}>text search</a>.</>],
+          [<><C>OPENAI_API_KEY</C> and others</>, "—", <>Keys for hosted embedding models; admins can also add them under Settings in the app. See <a href={g("text-search")}>text search</a>.</>],
           [<C>NEEDLEDB_MODEL_CACHE</C>, "fastembed's default", "Where local embedding models are downloaded."],
         ]} />
 
@@ -565,7 +565,7 @@ db.Index("articles").search("renewable energy in small towns")`} />
         <p>Each model downloads the first time it's used. Set <C>NEEDLEDB_MODEL_CACHE</C> to choose where.</p>
 
         <H2 id="keys">Provider keys</H2>
-        <p>Hosted providers read their key from the server's environment. Keys are never stored with an index or returned by the API; <a href={api("list-embedding-models")}>/embeddings/models</a> only reports whether each one is set.</p>
+        <p>Add a key in the web app under <b>Settings → Embedding providers</b>: it's checked with one tiny request, works immediately, and is never shown again. Or set it in the server's environment, which takes precedence. Keys are never stored with an index or returned by the API; <a href={api("list-embedding-models")}>/embeddings/models</a> only reports whether each provider is ready.</p>
         <DocTable head={["Provider", "Environment variable"]} rows={[
           ["OpenAI", <><C>OPENAI_API_KEY</C>, and <C>OPENAI_BASE_URL</C> for a compatible endpoint</>],
           ["Cohere", <><C>COHERE_API_KEY</C> or <C>CO_API_KEY</C></>],
@@ -852,6 +852,8 @@ vectors.example.com {
           [<C>index.created</C>, "An index was created."],
           [<C>index.configured</C>, "An index's ef_search changed."],
           [<C>index.deleted</C>, "An index was deleted."],
+          [<C>provider.key_set</C>, "An admin saved an embedding provider key (only its last four characters are logged)."],
+          [<C>provider.key_removed</C>, "An admin removed an embedding provider key."],
         ]} />
         <p>Each event records who acted, from which address, the target, and whether it succeeded. Queries and writes aren't logged here; they're counted in <a href={api("metrics")}>metrics</a>.</p>
 

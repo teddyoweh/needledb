@@ -8,6 +8,7 @@ fastembed (`pip install "needledb[local]"`).
 """
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import importlib.util
 import os
@@ -137,16 +138,38 @@ def get_model(provider: str, model: str) -> Model:
     return found
 
 
+# Keys saved from the web app (see server/providers.py). The environment takes precedence.
+_key_resolver: Callable[[str], str | None] | None = None
+_trial_key: contextvars.ContextVar[str | None] = contextvars.ContextVar("needledb_trial_key", default=None)
+
+
+def set_key_resolver(resolver: Callable[[str], str | None] | None) -> None:
+    global _key_resolver
+    _key_resolver = resolver
+
+
+def key_source(provider: Provider) -> str | None:
+    """Where a hosted provider's key comes from: "environment", "app", or None."""
+    if provider.local:
+        return None
+    if any(os.environ.get(name) for name in provider.env):
+        return "environment"
+    if _key_resolver is not None and _key_resolver(provider.id):
+        return "app"
+    return None
+
+
 def available(provider: Provider) -> bool:
     if provider.local:
         return importlib.util.find_spec("fastembed") is not None
-    return any(os.environ.get(name) for name in provider.env)
+    return key_source(provider) is not None
 
 
 def catalog() -> dict:
     """What the server can embed with. Reports whether a key is set, never the key."""
     return {
-        "providers": [{"id": p.id, "name": p.name, "available": available(p), "env": list(p.env), "local": p.local}
+        "providers": [{"id": p.id, "name": p.name, "available": available(p), "env": list(p.env), "local": p.local,
+                       "keySource": key_source(p)}
                       for p in PROVIDERS.values()],
         "models": [{"provider": m.provider, "id": m.id, "name": m.name, "dimension": m.dimension,
                     "dimensions": sorted({m.dimension, *m.dimensions}), "description": m.description,
@@ -177,10 +200,15 @@ def set_http_client(client: httpx.Client | None) -> None:
 
 
 def _key(provider: Provider) -> str:
+    if trial := _trial_key.get():
+        return trial
     for name in provider.env:
         if value := os.environ.get(name):
             return value
-    raise FailedPrecondition(f"{provider.name} embeddings need {provider.env[0]} set in the server's environment")
+    if _key_resolver is not None and (saved := _key_resolver(provider.id)):
+        return saved
+    raise FailedPrecondition(f"{provider.name} embeddings need an API key: add one under Settings in the web app, "
+                             f"or set {provider.env[0]} in the server's environment")
 
 
 def _detail(response: httpx.Response) -> str:
@@ -416,3 +444,31 @@ def compare(body: dict) -> dict:
         except NeedleError as exc:
             results.append({"provider": provider, "model": model_id, "error": {"code": exc.code, "message": exc.message}})
     return {"results": results}
+
+
+# ---- connection checks -----------------------------------------------------------------
+
+CHECK_MODELS = {
+    "openai": "text-embedding-3-small", "cohere": "embed-english-light-v3.0", "voyage": "voyage-3.5-lite",
+    "google": "gemini-embedding-001", "mistral": "mistral-embed", "jina": "jina-embeddings-v3",
+    "local": "BAAI/bge-small-en-v1.5",
+}
+
+
+def check_provider(provider_id: str, key: str | None = None) -> dict:
+    """Embed one short text to prove a provider works — with `key`, before it's saved."""
+    if provider_id not in PROVIDERS:
+        raise InvalidArgument(f"provider must be one of {', '.join(PROVIDERS)}")
+    model = get_model(provider_id, CHECK_MODELS[provider_id])
+    token = _trial_key.set(key) if key else None
+    started = time.perf_counter()
+    try:
+        vectors = CALLERS[provider_id](model, ["NeedleDB connection check"], "query", model.dimension)
+        if len(vectors) != 1:
+            raise Unavailable(f"{PROVIDERS[provider_id].name} returned an unexpected response")
+    except NeedleError as exc:
+        return {"ok": False, "code": exc.code, "message": exc.message}
+    finally:
+        if token is not None:
+            _trial_key.reset(token)
+    return {"ok": True, "model": model.id, "latencyMs": round((time.perf_counter() - started) * 1000, 1)}

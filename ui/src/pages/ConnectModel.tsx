@@ -111,7 +111,7 @@ export function ConnectModel({ info, current, onConnected }: {
                 <BrandLogo vendor={PROVIDER_VENDOR[p.id]} size={15} />
                 <b>{p.name}</b>
                 <span className={`key-state ${p.available ? "ok" : ""}`}>
-                  {p.available ? (p.local ? "Installed" : "Key set") : p.local ? "Needs needledb[local]" : `Needs ${p.env[0]}`}
+                  {p.available ? (p.local ? "Installed" : "Key set") : p.local ? "Needs needledb[local]" : "Needs a key"}
                 </span>
               </div>
               {models.map((m) => {
@@ -148,7 +148,7 @@ export function ConnectModel({ info, current, onConnected }: {
         <div className="note note-warn">
           {provider.local
             ? <>This model runs locally and needs <code>pip install "needledb[local]"</code> on the server.</>
-            : <>Searching with {model.name} needs <code>{provider.env[0]}</code> in the server's environment. You can connect it now and add the key after.</>}
+            : <>Searching with {model.name} needs a {provider.name} API key. You can connect it now and <a className="link" href={`#/settings?provider=${provider.id}`}>add the key</a> after.</>}
         </div>
       )}
       <ErrorNote error={error} />

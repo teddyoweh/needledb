@@ -313,7 +313,7 @@ function CreateIndexSheet({ open, onClose, onCreated }: { open: boolean; onClose
                         <b>{g.provider.name}</b>
                         <span className={`key-state ${g.provider.available ? "ok" : ""}`}>
                           {g.provider.available ? (g.provider.local ? "Installed" : "Key set")
-                            : g.provider.local ? "Needs needledb[local]" : `Needs ${g.provider.env[0]}`}
+                            : g.provider.local ? "Needs needledb[local]" : "Needs a key"}
                         </span>
                       </div>
                       {g.models.map((x) => {
@@ -355,7 +355,7 @@ function CreateIndexSheet({ open, onClose, onCreated }: { open: boolean; onClose
               <div className="note note-warn">
                 {provider.local
                   ? <>Local models need <code>pip install "needledb[local]"</code> on the server. You can create the index now.</>
-                  : <>{provider.name} needs <code>{provider.env[0]}</code> in the server's environment before it can embed text. You can create the index now and add the key later.</>}
+                  : <>{provider.name} needs an API key before it can embed text. You can create the index now and <a className="link" href={`#/settings?provider=${provider.id}`}>add the key in Settings</a>.</>}
               </div>
             )}
             {model && provider?.local && provider.available && model.sizeMb && (

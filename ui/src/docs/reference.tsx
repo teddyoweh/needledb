@@ -649,6 +649,71 @@ print(key.key)`,
 
   // ---- operations -------------------------------------------------------------------
   {
+    slug: "list-provider-keys", title: "List provider keys", group: "Settings", method: "GET", path: "/settings/providers", access: "admin",
+    summary: "Which embedding providers are ready, and where each key comes from. Keys are never returned.",
+    keywords: "openai api key settings integrations",
+    response: [{
+      name: "providers", type: "object[]", description: "One per provider.", children: [
+        { name: "id", type: "string", description: "openai, cohere, voyage, google, mistral, jina or local." },
+        { name: "name", type: "string", description: "Display name." },
+        { name: "available", type: "boolean", description: "Whether the server can use it now." },
+        { name: "source", type: "string | null", description: "environment, app, or null when there's no key." },
+        { name: "saved", type: "object | null", description: "For a key saved in the app: hint (its last four characters), setAt and setBy." },
+        { name: "env", type: "string[]", description: "Environment variables that can hold the key." },
+        { name: "local", type: "boolean", description: "True for local models, which need no key." },
+      ],
+    }],
+    curl: `curl ${ORIGIN}/settings/providers ${H}`,
+    example: `{
+  "providers": [
+    {"id": "openai", "name": "OpenAI", "local": false, "env": ["OPENAI_API_KEY"], "available": true,
+     "source": "app", "saved": {"hint": "Q2xA", "setAt": 1789500000.4, "setBy": "Teddy (admin)"}},
+    {"id": "cohere", "name": "Cohere", "local": false, "env": ["COHERE_API_KEY", "CO_API_KEY"], "available": false,
+     "source": null, "saved": null}
+  ]
+}`,
+  },
+  {
+    slug: "save-provider-key", title: "Save a provider key", group: "Settings", method: "POST", path: "/settings/providers/{provider}", access: "admin",
+    summary: "Save an embedding provider's API key on the server. It's used right away.",
+    keywords: "openai api key settings",
+    about: <p>The key is written to <C>_system/providers.json</C> with owner-only permissions and never returned; the audit log records only its last four characters. Refused when the key is already set in the server's environment, which takes precedence. Check a key first with <a href="#/docs/api/test-provider-key">test a provider key</a>.</p>,
+    pathParams: [{ name: "provider", type: "string", required: true, description: "openai, cohere, voyage, google, mistral or jina." }],
+    body: [{ name: "apiKey", type: "string", required: true, description: "The provider's API key." }],
+    response: [{ name: "provider", type: "object", description: "The updated row, with the same fields as list provider keys." }],
+    curl: `curl ${ORIGIN}/settings/providers/openai \\
+  ${JSON_H} \\
+  -d '{"apiKey": "sk-…"}'`,
+    example: `{"id": "openai", "name": "OpenAI", "local": false, "env": ["OPENAI_API_KEY"], "available": true,
+ "source": "app", "saved": {"hint": "Q2xA", "setAt": 1789500000.4, "setBy": "Teddy (admin)"}}`,
+  },
+  {
+    slug: "remove-provider-key", title: "Remove a provider key", group: "Settings", method: "DELETE", path: "/settings/providers/{provider}", access: "admin",
+    summary: "Delete a key saved in the app. Keys set in the environment are unaffected.",
+    pathParams: [{ name: "provider", type: "string", required: true, description: "A hosted provider id." }],
+    response: [{ name: "provider", type: "object", description: "The updated row." }],
+    curl: `curl -X DELETE ${ORIGIN}/settings/providers/openai ${H}`,
+    example: `{"id": "openai", "name": "OpenAI", "local": false, "env": ["OPENAI_API_KEY"], "available": false, "source": null, "saved": null}`,
+  },
+  {
+    slug: "test-provider-key", title: "Test a provider key", group: "Settings", method: "POST", path: "/settings/providers/{provider}/test", access: "admin",
+    summary: "Check a provider works by embedding one short text.",
+    about: <p>Send <C>apiKey</C> to check a key before saving it, or omit it to check the key the server already uses. Nothing is saved.</p>,
+    pathParams: [{ name: "provider", type: "string", required: true, description: "A provider id." }],
+    body: [{ name: "apiKey", type: "string", description: "A key to try instead of the saved one." }],
+    response: [
+      { name: "ok", type: "boolean", description: "Whether the provider answered." },
+      { name: "model", type: "string", description: "The model used for the check." },
+      { name: "latencyMs", type: "number", description: "How long the provider took." },
+      { name: "code", type: "string", description: "The error code, when ok is false." },
+      { name: "message", type: "string", description: "What went wrong, when ok is false." },
+    ],
+    curl: `curl ${ORIGIN}/settings/providers/openai/test \\
+  ${JSON_H} \\
+  -d '{"apiKey": "sk-…"}'`,
+    example: `{"ok": true, "model": "text-embedding-3-small", "latencyMs": 212.4}`,
+  },
+  {
     slug: "events", title: "Audit events", group: "Operations", method: "GET", path: "/events", access: "admin",
     summary: "Read the audit log, newest first.",
     keywords: "audit log history",

@@ -77,6 +77,7 @@ function facetsOf(matches: QueryResult["matches"], skip: string[]) {
 }
 
 function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loaded: boolean; initial?: string }) {
+  const { can } = useSession();
   const catalog = useEmbeddingCatalog();
   const [name, setName] = useState("");
   // A model connected here shows up before the index list refreshes.
@@ -223,7 +224,10 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
           <div className="note note-warn">
             {provider.local
               ? <>{info.name} searches with a local model, which needs <code>pip install "needledb[local]"</code> on the server.</>
-              : <>{info.name} searches with {provider.name}, which needs <code>{provider.env[0]}</code> in the server's environment. Set it and restart the server to search.</>}
+              : <>{info.name} searches with {provider.name}, which needs an API key.{" "}
+                {can("admin")
+                  ? <a className="link" href={`#/settings?provider=${provider.id}`}>Add your {provider.name} key</a>
+                  : "Ask an admin to add one under Settings."}</>}
           </div>
         )}
         {facets.length > 0 && (
@@ -560,7 +564,7 @@ function ModelSlot({ value, catalog, onChange, onRemove }: {
       <select aria-label="Embedding model" value={value} onChange={(e) => onChange(e.target.value)}>
         {!catalog && <option value={value}>{value}</option>}
         {catalog?.providers.map((p) => (
-          <optgroup key={p.id} label={`${p.name}${p.available ? "" : p.local ? " — install needledb[local]" : ` — needs ${p.env[0]}`}`}>
+          <optgroup key={p.id} label={`${p.name}${p.available ? "" : p.local ? " — install needledb[local]" : " — needs a key"}`}>
             {catalog.models.filter((m) => m.provider === p.id).map((m) => (
               <option key={keyOf(m)} value={keyOf(m)}>{m.name} · {m.dimension}-d</option>
             ))}

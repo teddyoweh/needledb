@@ -17,6 +17,7 @@ import {
   IconReturn,
   IconSearch,
   IconShield,
+  IconSliders,
   IconSparkles,
 } from "./icons";
 import { ROLE_LABEL, copyText, fmtCompact, fmtMs, go, useHashRoute, usePoll } from "./lib";
@@ -26,6 +27,7 @@ import Keys from "./pages/Keys";
 import Overview from "./pages/Overview";
 import Playground from "./pages/Playground";
 import Security from "./pages/Security";
+import Settings from "./pages/Settings";
 import { useSession } from "./session";
 import { Avatar, Dot, Empty, Kbd, Menu, MenuDivider, MenuItem, MenuLabel, useToast } from "./ui";
 
@@ -145,6 +147,7 @@ export default function Shell() {
           : section === "keys" ? [{ label: "API Keys" }]
             : section === "security" ? [{ label: "Security" }]
             : section === "playground" ? [{ label: "Playground" }]
+            : section === "settings" ? [{ label: "Settings" }]
               : [{ label: "Not found" }];
 
   useEffect(() => {
@@ -158,6 +161,7 @@ export default function Shell() {
     { id: "p-compare", group: "Go to", label: "Compare embedding models", icon: <IconSparkles size={18} />, run: () => go("/playground/compare") },
     ...(can("admin") ? [{ id: "p-keys", group: "Go to", label: "API Keys", icon: <IconKey size={18} />, run: () => go("/keys") }] : []),
     { id: "p-security", group: "Go to", label: "Security", icon: <IconShield size={18} />, run: () => go("/security") },
+    ...(can("admin") ? [{ id: "p-settings", group: "Go to", label: "Settings", hint: "Embedding provider keys", icon: <IconSliders size={18} />, run: () => go("/settings") }] : []),
     ...list.map((i) => ({
       id: `i-${i.name}`, group: "Indexes", label: i.name, hint: `${i.dimension}-d · ${fmtCompact(i.vectorCount)} vectors`,
       icon: <IconIndexes size={18} />, run: () => go(`/indexes/${encodeURIComponent(i.name)}`),
@@ -185,6 +189,8 @@ export default function Shell() {
       : <Empty icon={<IconKey size={22} />} title="Admins manage keys">Your key has {ROLE_LABEL[principal.role].toLowerCase()} access.</Empty>;
   } else if (section === "playground") {
     page = <Playground indexes={list} loaded={!!indexes.data} tab={parts[1] ?? "search"} params={params} />;
+  } else if (section === "settings") {
+    page = <Settings params={params} />;
   } else if (section === "security") {
     page = <Security query={params.get("q") ?? ""} />;
   } else if (section === "") {
@@ -238,6 +244,7 @@ export default function Shell() {
           <div className="nav-label">Access</div>
           {can("admin") && <NavItem href="#/keys" icon={<IconKey size={18} />} label="API Keys" active={section === "keys"} />}
           <NavItem href="#/security" icon={<IconShield size={18} />} label="Security" active={section === "security"} />
+          {can("admin") && <NavItem href="#/settings" icon={<IconSliders size={18} />} label="Settings" active={section === "settings"} />}
 
           <div className="nav-label">Resources</div>
           <a href="#/docs" className="nav-item"><IconBook size={18} /><span className="nav-text">Documentation</span></a>
