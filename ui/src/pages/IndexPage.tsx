@@ -241,7 +241,7 @@ function IndexOverview({ info, namespaces, stats, history, canWrite, isAdmin, on
         <div className="chart-head">
           <div><span className="chart-figure">{(latest?.qps ?? 0).toFixed(1)}</span><span className="chart-unit">requests / s</span></div>
         </div>
-        <AreaChart times={history.map((s) => s.t)} height={176} format={(v) => v.toFixed(v < 1 ? 2 : v < 10 ? 1 : 0)} empty="No requests yet"
+        <AreaChart times={history.map((s) => s.t)} height={176} format={(v) => `${v.toFixed(v < 1 ? 2 : v < 10 ? 1 : 0)} req/s`} floor={1} empty="No requests yet"
           series={[{ name: "Requests/s", color: "#12a189", values: history.map((s) => s.qps) }]} />
         <dl className="traffic-stats">
           <div><dt>p50</dt><dd>{fmtMs(latest?.p50)}</dd></div>

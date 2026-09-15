@@ -2,14 +2,16 @@ import { type MouseEvent, useId, useLayoutEffect, useRef, useState } from "react
 
 export type Series = { name: string; color: string; values: (number | null)[] };
 
+const nonNull = (v: number | null): v is number => v != null;
+
 function niceMax(v: number) {
   if (!(v > 0)) return 1;
   const p = 10 ** Math.floor(Math.log10(v));
   const m = v / p;
-  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p;
 }
 
-/** Monotone cubic curve through the points (no overshoot), split where values are missing. */
+/** Monotone cubic curve through the points: smooth, and never overshoots the data. */
 function smooth(points: [number, number][]): string {
   const n = points.length;
   if (n === 0) return "";
@@ -47,28 +49,71 @@ function smooth(points: [number, number][]): string {
   return d;
 }
 
-function runs(values: (number | null)[], x: (i: number) => number, y: (v: number) => number) {
-  const out: [number, number][][] = [];
-  let current: [number, number][] = [];
-  values.forEach((v, i) => {
-    if (v == null) {
-      if (current.length) out.push(current);
-      current = [];
-    } else {
-      current.push([x(i), y(v)]);
-    }
-  });
-  if (current.length) out.push(current);
-  return out;
+/** Carry the last known value across gaps, so a quiet moment doesn't break the line. */
+function hold(values: (number | null)[]) {
+  let last: number | null = null;
+  return values.map((v) => (v != null ? (last = v) : last));
 }
 
-/** A live area chart: one y-axis, soft fill, crosshair tooltip. */
-export function AreaChart({ times, series, format, height = 210, empty = "Waiting for traffic" }: {
+/** Exponential smoothing: follows the trend, ignores the jitter. */
+function ease(values: (number | null)[], alpha: number) {
+  let prev: number | null = null;
+  return values.map((v) => {
+    if (v == null) return prev;
+    prev = prev == null ? v : prev + alpha * (v - prev);
+    return prev;
+  });
+}
+
+const BUCKETS_MS = [2_000, 4_000, 6_000, 10_000, 12_000, 20_000, 30_000, 60_000, 120_000, 300_000];
+
+/**
+ * Average samples into fixed time buckets (aligned to the clock, so they don't shift
+ * as new samples arrive), then ease between buckets.
+ */
+function calm(times: number[], series: Series[], target: number) {
+  const n = times.length;
+  if (n < 2) return { times, series: series.map((s) => ({ ...s, values: hold(s.values) })) };
+  const span = times[n - 1] - times[0];
+  const step = BUCKETS_MS.find((ms) => span / ms <= target) ?? BUCKETS_MS[BUCKETS_MS.length - 1];
+  const slot = new Map<number, number>();
+  const keys: number[] = [];
+  for (const t of times) {
+    const k = Math.floor(t / step);
+    if (!slot.has(k)) {
+      slot.set(k, keys.length);
+      keys.push(k);
+    }
+  }
+  return {
+    times: keys.map((k) => Math.min((k + 1) * step, times[n - 1])),
+    series: series.map((s) => {
+      const sums = keys.map(() => 0);
+      const counts = keys.map(() => 0);
+      hold(s.values).forEach((v, i) => {
+        if (v == null) return;
+        const b = slot.get(Math.floor(times[i] / step))!;
+        sums[b] += v;
+        counts[b] += 1;
+      });
+      return { ...s, values: ease(sums.map((sum, b) => (counts[b] ? sum / counts[b] : null)), 0.5) };
+    }),
+  };
+}
+
+/**
+ * A live area chart in the style of a finance dashboard: a calm curve, a soft fill,
+ * dashed guides, and a value pill on the latest point that follows the cursor.
+ * `floor` is the smallest top of scale, so tiny values stay near the baseline.
+ */
+export function AreaChart({ times, series, format, height = 220, empty = "Waiting for traffic", floor = 0, points = 60 }: {
   times: number[];
   series: Series[];
   format: (v: number) => string;
   height?: number;
   empty?: string;
+  floor?: number;
+  points?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const gradientId = useId().replace(/:/g, "");
@@ -84,21 +129,24 @@ export function AreaChart({ times, series, format, height = 210, empty = "Waitin
     return () => observer.disconnect();
   }, []);
 
-  const pad = { l: 52, r: 6, t: 12, b: 24 };
+  const view = calm(times, series, points);
+  const pad = { l: 2, r: 14, t: 40, b: 8 };
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
-  const n = times.length;
-  const present = series.flatMap((s) => s.values.filter((v): v is number => v != null));
-  const max = niceMax(present.length ? Math.max(...present) * 1.1 : 0);
+  const n = view.times.length;
+  const present = view.series.flatMap((s) => s.values.filter(nonNull));
+  const max = niceMax(Math.max(floor, present.length ? Math.max(...present) * 1.25 : 0));
   const x = (i: number) => pad.l + (n <= 1 ? w : (i / (n - 1)) * w);
   const y = (v: number) => pad.t + h - (v / max) * h;
-  const span = n > 1 ? Math.round((times[n - 1] - times[0]) / 1000) : 0;
+  const baseline = pad.t + h;
+  const active = hover != null && hover < n ? hover : n - 1;
+  const activeValues = view.series.map((s) => s.values[active] ?? null);
+  const highest = Math.max(...activeValues.filter(nonNull), 0);
 
   function onMove(e: MouseEvent<SVGSVGElement>) {
     if (n === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const scale = width / rect.width;
-    const i = Math.round((((e.clientX - rect.left) * scale - pad.l) / Math.max(w, 1)) * (n - 1));
+    const i = Math.round((((e.clientX - rect.left) * (width / rect.width) - pad.l) / Math.max(w, 1)) * (n - 1));
     setHover(Math.min(n - 1, Math.max(0, i)));
   }
 
@@ -106,54 +154,49 @@ export function AreaChart({ times, series, format, height = 210, empty = "Waitin
     <div className="chart" ref={ref}>
       <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none"
         onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img"
-        aria-label={`${series.map((s) => s.name).join(" and ")} over the last ${span} seconds`}>
+        aria-label={`${series.map((s) => s.name).join(" and ")} over time`}>
         <defs>
-          {series.map((s, i) => (
+          {view.series.map((s, i) => (
             <linearGradient key={s.name} id={`${gradientId}-${i}`} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={s.color} stopOpacity={i === 0 ? 0.16 : 0.08} />
+              <stop offset="0%" stopColor={s.color} stopOpacity={i === 0 ? 0.24 : 0.12} />
               <stop offset="100%" stopColor={s.color} stopOpacity={0} />
             </linearGradient>
           ))}
         </defs>
         {[0, 0.5, 1].map((f) => (
-          <g key={f}>
-            <line x1={pad.l} x2={width - pad.r} y1={y(f * max)} y2={y(f * max)} className="grid" />
-            <text x={pad.l - 10} y={y(f * max)} className="axis" textAnchor="end" dominantBaseline="middle">{format(f * max)}</text>
-          </g>
+          <line key={f} x1={pad.l} x2={width - pad.r} y1={y(f * max)} y2={y(f * max)} className="grid" />
         ))}
-        {span > 0 && <text x={pad.l} y={height - 4} className="axis">{span >= 120 ? `${Math.round(span / 60)} min ago` : `${span}s ago`}</text>}
-        <text x={width - pad.r} y={height - 4} className="axis" textAnchor="end">now</text>
-        {series.map((s, i) =>
-          runs(s.values, x, y).map((run, r) => {
-            const line = smooth(run);
-            const area = run.length > 1 ? `${line}L${run[run.length - 1][0].toFixed(1)},${pad.t + h}L${run[0][0].toFixed(1)},${pad.t + h}Z` : "";
-            return (
-              <g key={`${s.name}-${r}`}>
-                {area && <path d={area} fill={`url(#${gradientId}-${i})`} />}
-                <path d={line} className="line" style={{ stroke: s.color }} />
-              </g>
-            );
-          }),
-        )}
-        {hover != null && (
-          <g>
-            <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + h} className="crosshair" />
-            {series.map((s) => {
-              const v = s.values[hover];
-              return v == null ? null : <circle key={s.name} cx={x(hover)} cy={y(v)} r={4.5} style={{ fill: s.color }} className="point" />;
-            })}
-          </g>
-        )}
+        {view.series.map((s, i) => {
+          const run = s.values.map((v, j) => (v == null ? null : ([x(j), y(v)] as [number, number]))).filter((p): p is [number, number] => p !== null);
+          if (run.length === 0) return null;
+          const line = smooth(run);
+          const area = run.length > 1 ? `${line}L${run[run.length - 1][0].toFixed(1)},${baseline}L${run[0][0].toFixed(1)},${baseline}Z` : "";
+          return (
+            <g key={s.name}>
+              {area && <path d={area} fill={`url(#${gradientId}-${i})`} />}
+              <path d={line} className="line" style={{ stroke: s.color }} />
+            </g>
+          );
+        })}
+        {hover != null && n > 0 && <line x1={x(active)} x2={x(active)} y1={pad.t - 4} y2={baseline} className="crosshair" />}
+        {n > 0 && view.series.map((s) => {
+          const v = s.values[active];
+          if (v == null) return null;
+          return (
+            <g key={s.name}>
+              <circle cx={x(active)} cy={y(v)} r={11} style={{ fill: s.color, opacity: 0.14 }} />
+              <circle cx={x(active)} cy={y(v)} r={5.5} className="marker-ring" />
+              <circle cx={x(active)} cy={y(v)} r={3.5} style={{ fill: s.color }} />
+            </g>
+          );
+        })}
       </svg>
-      {hover != null && (
-        <div className="tooltip" style={{ left: `${(Math.min(x(hover) + 14, width - 170) / width) * 100}%`, top: 8 }}>
-          <div className="tooltip-time">{new Date(times[hover]).toLocaleTimeString()}</div>
-          {series.map((s) => {
-            const v = s.values[hover];
-            return (
-              <div key={s.name} className="tooltip-row"><i style={{ background: s.color }} />{s.name}<b>{v == null ? "—" : format(v)}</b></div>
-            );
-          })}
+      {present.length > 0 && n > 0 && activeValues.some(nonNull) && (
+        <div className="chart-pill" style={{ left: `${(Math.min(Math.max(x(active), 64), width - 64) / width) * 100}%`, top: y(highest) }}>
+          {hover != null && <small>{new Date(view.times[active]).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</small>}
+          {view.series.map((s, i) => activeValues[i] == null ? null : (
+            <span key={s.name}>{series.length > 1 && <i style={{ background: s.color }} />}{series.length > 1 ? `${s.name} ` : ""}{format(activeValues[i]!)}</span>
+          ))}
         </div>
       )}
       {!present.length && <div className="chart-empty">{empty}</div>}
@@ -180,7 +223,7 @@ export function DotMatrix({ values, columns = 24, rows = 8, color = "#12a189" }:
     if (!values.length) return null;
     const start = Math.floor((c * values.length) / columns);
     const end = Math.max(start + 1, Math.floor(((c + 1) * values.length) / columns));
-    const slice = values.slice(start, end).filter((v): v is number => v != null);
+    const slice = values.slice(start, end).filter(nonNull);
     return slice.length ? slice.reduce((a, b) => a + b, 0) / slice.length : null;
   });
   const max = Math.max(0, ...buckets.map((b) => b ?? 0));
@@ -219,34 +262,60 @@ export function StackBar({ segments }: { segments: { label: string; value: numbe
   );
 }
 
-/** A tiny trend line for stat tiles and cards. */
-export function Sparkline({ values, color = "#0071e3", width = 88, height = 30 }: {
+/** A small, calm trend line for tiles and table rows, measured from zero. */
+export function Sparkline({ values, color = "#2f6bff", width = 88, height = 30, floor = 0 }: {
   values: (number | null)[];
   color?: string;
   width?: number;
   height?: number;
+  floor?: number;
 }) {
   const id = useId().replace(/:/g, "");
-  const present = values.filter((v): v is number => v != null);
+  const eased = ease(hold(values), 0.22);
+  const start = eased.findIndex(nonNull);
+  const present = start < 0 ? [] : (eased.slice(start) as number[]);
   if (present.length < 2) return <svg width={width} height={height} aria-hidden="true" />;
-  const max = Math.max(...present);
-  const min = Math.min(...present);
-  const range = max - min || 1;
-  const x = (i: number) => (i / (values.length - 1)) * (width - 2) + 1;
-  const y = (v: number) => height - 3 - ((v - min) / range) * (height - 6);
-  const line = runs(values, x, y).map(smooth).join("");
+  const max = Math.max(floor, ...present) * 1.2 || 1;
+  const x = (i: number) => 2 + (i / (present.length - 1)) * (width - 6);
+  const y = (v: number) => height - 2 - (v / max) * (height - 6);
+  const line = smooth(present.map((v, i) => [x(i), y(v)]));
   const last = present[present.length - 1];
   return (
     <svg width={width} height={height} aria-hidden="true" className="sparkline">
       <defs>
         <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.2} />
+          <stop offset="0%" stopColor={color} stopOpacity={0.22} />
           <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
       </defs>
-      <path d={`${line}L${width - 1},${height}L1,${height}Z`} fill={`url(#${id})`} />
+      <path d={`${line}L${x(present.length - 1)},${height}L${x(0)},${height}Z`} fill={`url(#${id})`} />
       <path d={line} fill="none" stroke={color} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={x(values.length - 1)} cy={y(last)} r={2.5} fill={color} />
+      <circle cx={x(present.length - 1)} cy={y(last)} r={2.5} fill={color} />
+    </svg>
+  );
+}
+
+/** A trend that fills the corner of a metric card, fading in from the left. */
+export function TrendFill({ values, color, floor = 0 }: { values: (number | null)[]; color: string; floor?: number }) {
+  const id = useId().replace(/:/g, "");
+  const eased = ease(hold(values), 0.18);
+  const start = eased.findIndex(nonNull);
+  const present = start < 0 ? [] : (eased.slice(start) as number[]);
+  if (present.length < 2) return null;
+  const max = Math.max(floor, ...present) * 1.25 || 1;
+  const W = 200;
+  const H = 100;
+  const line = smooth(present.map((v, i) => [(i / (present.length - 1)) * W, H - 2 - (v / max) * (H - 8)]));
+  return (
+    <svg className="trend-fill" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.26} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path d={`${line}L${W},${H}L0,${H}Z`} fill={`url(#${id})`} />
+      <path d={line} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
