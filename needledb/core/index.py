@@ -6,6 +6,8 @@ the collection's write lock — so an acknowledged write is durable, and a snaps
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import math
 import os
@@ -33,6 +35,20 @@ from .filters import validate_metadata
 from .storage import Storage
 
 SNAPSHOT_EVERY = int(os.environ.get("NEEDLEDB_SNAPSHOT_EVERY", "50000"))
+
+
+def decode_vector(value, dimension: int):
+    """Vectors may be JSON number lists or base64 little-endian float32 — the fast wire format."""
+    if not isinstance(value, str):
+        return value
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        raise InvalidArgument("a vector must be a list of numbers or base64-encoded float32") from None
+    if len(raw) != dimension * 4:
+        raise InvalidArgument(f"a base64 vector must hold {dimension} float32 values ({dimension * 4} bytes), "
+                              f"got {len(raw)} bytes")
+    return np.frombuffer(raw, dtype="<f4")
 _KEEP = object()
 
 
@@ -139,7 +155,7 @@ class Index:
             if metadata and len(orjson.dumps(metadata)) > MAX_METADATA_BYTES:
                 raise InvalidArgument(f"metadata for {rid!r} exceeds {MAX_METADATA_BYTES} bytes")
             ids.append(rid)
-            rows.append(values)
+            rows.append(decode_vector(values, self.cfg.dimension))
             metas.append(metadata)
         try:
             mat = np.asarray(rows, dtype=np.float32)
@@ -224,6 +240,7 @@ class Index:
             raise InvalidArgument("filter must be an object")
         q = None
         if vector is not None:
+            vector = decode_vector(vector, self.cfg.dimension)
             try:
                 q = np.asarray(vector, dtype=np.float32)
             except (TypeError, ValueError):

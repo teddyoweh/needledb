@@ -1,10 +1,12 @@
 """NeedleDB — the client for a running NeedleDB server."""
 from __future__ import annotations
 
+import base64
 import os
 import time
 
 import httpx
+import numpy as np
 import orjson
 
 from .. import __version__
@@ -12,6 +14,11 @@ from ..errors import BY_CODE, NeedleError
 from .index import BaseIndex, Obj, wrap
 
 _TRANSIENT = {502, 503, 504}
+
+
+def _pack(values) -> str:
+    """A vector as base64 little-endian float32: a quarter of the JSON size, and no float parsing."""
+    return base64.b64encode(np.asarray(values, dtype="<f4").tobytes()).decode("ascii")
 _KEEP = object()
 
 
@@ -27,7 +34,8 @@ class NeedleDB:
     """
 
     def __init__(self, url: str | None = None, api_key: str | None = None, *,
-                 timeout: float = 30.0, retries: int = 3, client: httpx.Client | None = None):
+                 timeout: float = 30.0, retries: int = 3, client: httpx.Client | None = None,
+                 binary_vectors: bool = True):
         url = url or os.environ.get("NEEDLEDB_URL", "http://localhost:8080")
         api_key = api_key or os.environ.get("NEEDLEDB_API_KEY")
         self._http = client or httpx.Client(base_url=url, timeout=timeout,
@@ -36,6 +44,8 @@ class NeedleDB:
         if api_key:
             self._http.headers["Api-Key"] = api_key
         self._retries = retries
+        # Base64 float32 needs NeedleDB 0.2+; pass binary_vectors=False for older servers.
+        self.binary_vectors = binary_vectors
 
     def request(self, method: str, path: str, body=None, params=None):
         content = orjson.dumps(body, option=orjson.OPT_SERIALIZE_NUMPY) if body is not None else None
@@ -149,12 +159,28 @@ class RemoteIndex(BaseIndex):
         self._base = f"/indexes/{name}"
 
     def _upsert(self, vectors, namespace):
+        if self._db.binary_vectors:
+            vectors = [self._packed(v) for v in vectors]
         body = {"vectors": vectors}
         if namespace:
             body["namespace"] = namespace
         return self._db.request("POST", f"{self._base}/vectors/upsert", body)["upsertedCount"]
 
+    def _packed(self, record):
+        if isinstance(record, dict):
+            if record.get("values") is None:
+                return record
+            return {**record, "values": _pack(record["values"])}
+        if isinstance(record, (tuple, list)) and len(record) in (2, 3):
+            packed = {"id": record[0], "values": _pack(record[1])}
+            if len(record) == 3 and record[2] is not None:
+                packed["metadata"] = record[2]
+            return packed
+        return record
+
     def _query(self, *, vector, id, text, top_k, namespace, filter, include_values, include_metadata, ef_search):
+        if vector is not None and self._db.binary_vectors:
+            vector = _pack(vector)
         body = {"topK": top_k, "includeValues": include_values, "includeMetadata": include_metadata}
         for key, value in (("vector", vector), ("id", id), ("text", text), ("namespace", namespace),
                            ("filter", filter), ("efSearch", ef_search)):
@@ -168,7 +194,7 @@ class RemoteIndex(BaseIndex):
     def _update(self, id, values, set_metadata, namespace):
         body = {"id": id, "namespace": namespace}
         if values is not None:
-            body["values"] = values
+            body["values"] = _pack(values) if self._db.binary_vectors else values
         if set_metadata is not None:
             body["setMetadata"] = set_metadata
         self._db.request("POST", f"{self._base}/vectors/update", body)

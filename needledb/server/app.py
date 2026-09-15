@@ -12,6 +12,7 @@ role and index access.
 from __future__ import annotations
 
 import os
+import re
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -65,6 +66,47 @@ def _error(status: int, code: str, message: str, headers: dict | None = None) ->
     return _json({"error": {"code": code, "message": message}}, status, headers)
 
 
+_QUERY_PATH = re.compile(r"^/indexes/([^/]+)/query$")
+
+
+def _query_response(index, raw: bytes) -> bytes:
+    """Parse a query body, search, and serialize — shared by the route and the fast path."""
+    body = _parse(raw)
+    return orjson.dumps(index.query(
+        vector=body.get("vector"),
+        id=body.get("id"),
+        text=body.get("text"),
+        top_k=_opt(body, "topK", "top_k", default=10),
+        namespace=body.get("namespace"),
+        filter=body.get("filter"),
+        include_values=bool(_opt(body, "includeValues", "include_values", default=False)),
+        include_metadata=bool(_opt(body, "includeMetadata", "include_metadata", default=False)),
+        ef_search=_opt(body, "efSearch", "ef_search"),
+    ))
+
+
+class _Disconnected(Exception):
+    pass
+
+
+async def _read_body(receive) -> bytes:
+    chunks = []
+    while True:
+        message = await receive()
+        if message["type"] == "http.request":
+            chunks.append(message.get("body", b""))
+            if not message.get("more_body"):
+                return b"".join(chunks)
+        elif message["type"] == "http.disconnect":
+            raise _Disconnected
+
+
+async def _send_json(send, status: int, body: bytes) -> None:
+    await send({"type": "http.response.start", "status": status,
+                "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+    await send({"type": "http.response.body", "body": body})
+
+
 def _parse(raw: bytes) -> dict:
     if not raw:
         return {}
@@ -108,9 +150,10 @@ class _Gate:
     """ASGI middleware: security headers, body cap, authentication, CSRF, metrics."""
 
     def __init__(self, app, *, store: KeyStore, lockout: Lockout, audit: AuditLog, auth_enabled: bool,
-                 metrics: Metrics, max_body: int, trust_proxy: bool):
+                 metrics: Metrics, max_body: int, trust_proxy: bool, registry=None):
         self.app, self.store, self.lockout, self.metrics, self.audit = app, store, lockout, metrics, audit
         self.auth_enabled, self.max_body, self.trust_proxy = auth_enabled, max_body, trust_proxy
+        self.registry = registry
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -176,12 +219,38 @@ class _Gate:
                 status = message["status"]
             await send(message)
 
+        fast = _QUERY_PATH.match(path) if method == "POST" and self.registry is not None else None
         try:
-            await self.app(scope, receive, send_with_status)
+            if fast:
+                await self._query(fast.group(1), state, receive, send_with_status)
+            else:
+                await self.app(scope, receive, send_with_status)
         finally:
-            route = scope.get("route")
-            self.metrics.observe(getattr(route, "path", "unmatched"), method, status,
-                                 (perf_counter() - started) * 1000, (scope.get("path_params") or {}).get("name"))
+            route = "/indexes/{name}/query" if fast else getattr(scope.get("route"), "path", "unmatched")
+            name = fast.group(1) if fast else (scope.get("path_params") or {}).get("name")
+            self.metrics.observe(route, method, status, (perf_counter() - started) * 1000, name)
+
+    async def _query(self, name: str, state: dict, receive, send) -> None:
+        """Queries skip the framework's routing and dependency layers: the same access checks,
+        errors, headers and metrics as the route, with parsing, search and serialization done in
+        one worker-thread hop. This is the request NeedleDB serves most."""
+        try:
+            principal = state["principal"]
+            if principal is None:
+                raise Unauthenticated("sign in, or send an Api-Key header")
+            if not principal.can_access(name):
+                raise NotFound(f"index {name!r} not found")
+            if not principal.allows("read"):
+                raise PermissionDenied(f"this key has {principal.role} access; read access is required")
+            index = self.registry.get(name)
+            raw = await _read_body(receive)
+            await _send_json(send, 200, await to_thread.run_sync(_query_response, index, raw))
+        except _Disconnected:
+            return
+        except NeedleError as exc:
+            await _send_json(send, exc.status, orjson.dumps({"error": {"code": exc.code, "message": exc.message}}))
+        except Exception:  # noqa: BLE001 — same contract as the app's internal-error handler
+            await _send_json(send, 500, orjson.dumps({"error": {"code": "INTERNAL", "message": "internal error"}}))
 
     @staticmethod
     async def _refuse(scope, receive, send, status, code, message, headers=None):
@@ -280,7 +349,7 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     app.state.audit = audit
     app.state.provider_keys = provider_keys
     app.add_middleware(_Gate, store=store, lockout=lockout, audit=audit, auth_enabled=auth_enabled,
-                       metrics=metrics, max_body=max_body, trust_proxy=trust_proxy)
+                       metrics=metrics, max_body=max_body, trust_proxy=trust_proxy, registry=registry)
 
     def record(request: Request, action: str, target: str | None = None, detail: dict | None = None) -> None:
         audit.record(action, actor=request.state.principal, ip=request.state.client_ip, target=target, detail=detail)
@@ -621,24 +690,10 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
 
     @app.post("/indexes/{name}/query")
     async def query(name: str, request: Request):
+        # Normally answered by the gate's fast path; kept so the route exists in the OpenAPI schema.
         index = index_for(request, name, "read")
         raw = await request.body()
-
-        def work():
-            body = _parse(raw)
-            return orjson.dumps(index.query(
-                vector=body.get("vector"),
-                id=body.get("id"),
-                text=body.get("text"),
-                top_k=_opt(body, "topK", "top_k", default=10),
-                namespace=body.get("namespace"),
-                filter=body.get("filter"),
-                include_values=bool(_opt(body, "includeValues", "include_values", default=False)),
-                include_metadata=bool(_opt(body, "includeMetadata", "include_metadata", default=False)),
-                ef_search=_opt(body, "efSearch", "ef_search"),
-            ))
-
-        return Response(await run(work), media_type="application/json")
+        return Response(await run(_query_response, index, raw), media_type="application/json")
 
     @app.get("/indexes/{name}/vectors/fetch")
     async def fetch_get(name: str, request: Request):

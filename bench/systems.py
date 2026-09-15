@@ -5,6 +5,7 @@ ef_construction) set identically; `set_ef` sets the query-time search width.
 """
 from __future__ import annotations
 
+import base64
 import os
 import shutil
 import socket
@@ -208,9 +209,7 @@ class NeedleHTTP(System):
                  "--api-key", self.api_key, "--log-level", "warning"],
                 cwd=ROOT, stdout=subprocess.DEVNULL)
             self.url = f"http://127.0.0.1:{port}"
-        self.http = httpx.Client(base_url=self.url, timeout=600,
-                                 headers={"Api-Key": self.api_key, "Content-Type": "application/json"},
-                                 limits=httpx.Limits(max_connections=128, max_keepalive_connections=128))
+        self.http = self._client()
         for _ in range(600):
             try:
                 if self.http.get("/health").status_code == 200:
@@ -222,10 +221,22 @@ class NeedleHTTP(System):
         self._post("/indexes", {"name": COLLECTION, "dimension": dim, "metric": "cosine", "index_type": "hnsw",
                                 "hnsw": {"m": m, "ef_construction": ef_construction}})
 
-    def _post(self, path, body):
+    def _client(self):
+        import httpx
+
+        return httpx.Client(base_url=self.url, timeout=600,
+                            headers={"Api-Key": self.api_key, "Content-Type": "application/json"},
+                            limits=httpx.Limits(max_connections=128, max_keepalive_connections=128))
+
+    @staticmethod
+    def _vec(values) -> str:
+        # Base64 float32, NeedleDB's binary wire format (Qdrant's client uses gRPC, pgvector its binary protocol).
+        return base64.b64encode(np.asarray(values, dtype="<f4").tobytes()).decode("ascii")
+
+    def _post(self, path, body, http=None):
         import orjson
 
-        resp = self.http.post(path, content=orjson.dumps(body, option=orjson.OPT_SERIALIZE_NUMPY))
+        resp = (http or self.http).post(path, content=orjson.dumps(body, option=orjson.OPT_SERIALIZE_NUMPY))
         resp.raise_for_status()
         return orjson.loads(resp.content)
 
@@ -233,17 +244,22 @@ class NeedleHTTP(System):
         for start in range(0, len(base), 500):
             stop = min(len(base), start + 500)
             self._post(f"/indexes/{COLLECTION}/vectors/upsert", {"vectors": [
-                {"id": str(i), "values": base[i], "metadata": metadata(int(labels[i]))} for i in range(start, stop)]})
+                {"id": str(i), "values": self._vec(base[i]), "metadata": metadata(int(labels[i]))} for i in range(start, stop)]})
 
     def ready(self):
         while self.http.get(f"/indexes/{COLLECTION}").json()["status"]["state"] != "Ready":
             time.sleep(0.5)
 
-    def search(self, q, k, flt=None):
-        body = {"vector": q, "topK": k, "efSearch": self.ef}
+    def search(self, q, k, flt=None, http=None):
+        body = {"vector": self._vec(q), "topK": k, "efSearch": self.ef}
         if flt:
             body["filter"] = {flt[0]: 0}
-        return [int(m["id"]) for m in self._post(f"/indexes/{COLLECTION}/query", body)["matches"]]
+        return [int(m["id"]) for m in self._post(f"/indexes/{COLLECTION}/query", body, http)["matches"]]
+
+    def worker(self):
+        # One connection pool per client thread, as the pgvector client gets one connection each.
+        http = self._client()
+        return lambda q, k, flt=None: self.search(q, k, flt, http)
 
     def memory_bytes(self):
         if self.proc is not None:
