@@ -1,59 +1,168 @@
-import { useState } from "react";
+import { type PointerEvent, type ReactNode, useRef, useState } from "react";
+import { smooth } from "../charts";
 import { CodeBlock } from "../code";
-import { BENCHMARKS, type BenchmarkSet, type BenchSystem } from "./benchmarkData";
+import { BrandMark } from "../icons";
+import { BENCHMARKS, type BenchmarkSet, type BenchPoint, type BenchSystem } from "./benchmarkData";
 import { C, Callout, DocTable, H2, H3 } from "./parts";
 
-type Verdict = { tone: "win" | "loss" | "even"; label: string };
+// ---- identity & formatting ------------------------------------------------------------------
 
-const gb = (bytes: number | null) => (bytes == null ? "—" : `${(bytes / 2 ** 30).toFixed(2)} GB`);
-const ms = (v: number) => (v < 10 ? `${v.toFixed(2)} ms` : `${v.toFixed(1)} ms`);
+type Identity = { name: string; color: string; logo?: string; dashed?: boolean };
+
+// One highlight colour for NeedleDB; competitors stay quiet so the comparison reads at a glance.
+const IDENTITY: Record<string, Identity> = {
+  "needledb-server": { name: "NeedleDB", color: "#2f6bff" },
+  "needledb-docker": { name: "NeedleDB", color: "#2f6bff" },
+  "needledb-embedded": { name: "NeedleDB embedded", color: "#2f6bff" },
+  "qdrant-docker": { name: "Qdrant", color: "#8b8c96", logo: "qdrant" },
+  "pgvector-docker": { name: "pgvector", color: "#c0c1c8", logo: "postgresql" },
+  "faiss-hnsw": { name: "Raw FAISS", color: "#a6a7af", logo: "meta", dashed: true },
+  "numpy-exact": { name: "Brute force", color: "#d0d1d6", dashed: true },
+};
+
+const who = (s: BenchSystem): Identity => IDENTITY[s.key] ?? { name: s.name, color: "#999999" };
+const isOurs = (s: BenchSystem) => s.key.startsWith("needledb");
+
 const count = (v: number | null) => (v == null ? "—" : Math.round(v).toLocaleString("en-US"));
-const seconds = (v: number) => `${v.toFixed(v < 10 ? 1 : 0)} s`;
+const ms = (v: number | null) => (v == null ? "—" : v < 10 ? `${v.toFixed(2)} ms` : `${v.toFixed(1)} ms`);
+const secs = (v: number | null) => (v == null ? "—" : `${v.toFixed(v < 10 ? 1 : 0)} s`);
+const gb = (v: number | null) => (v == null ? "—" : `${(v / 2 ** 30).toFixed(2)} GB`);
+const compact = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "")}k` : `${Math.round(v)}`);
 
-/** How `ours` compares with `theirs`; within 10% is a tie (one run, shared machine). */
-function versus(ours: number | null, theirs: number | null, higherIsBetter: boolean): Verdict | null {
-  if (ours == null || theirs == null || ours <= 0 || theirs <= 0) return null;
-  const factor = higherIsBetter ? ours / theirs : theirs / ours;
-  if (factor >= 1.1) return { tone: "win", label: factor >= 2 ? `${factor.toFixed(1)}× better` : `${Math.round((factor - 1) * 100)}% better` };
-  if (factor <= 1 / 1.1) return { tone: "loss", label: `${Math.round((1 - factor) * 100)}% behind` };
-  return { tone: "even", label: "about even" };
+function Mark({ system, size = 16 }: { system: BenchSystem; size?: number }) {
+  const id = who(system);
+  if (isOurs(system)) return <BrandMark size={size} />;
+  if (id.logo) return <img className="bench-logo" src={`brands/${id.logo}.svg`} width={size} height={size} alt="" />;
+  return <span className="bench-dot" style={{ width: size * 0.6, height: size * 0.6, background: id.color }} />;
 }
+
+// ---- comparisons ----------------------------------------------------------------------------
 
 type Metric = {
   id: string;
   title: string;
   unit: string;
   higherIsBetter: boolean;
+  verb: string;
   value: (s: BenchSystem) => number | null;
   format: (v: number | null) => string;
 };
 
-function metrics(set: BenchmarkSet): Metric[] {
-  return [
-    { id: "qps", title: "Queries per second, 1 client", unit: "higher is better", higherIsBetter: true, value: (s) => s.operating.qps, format: count },
-    { id: "concurrent", title: `Queries per second, ${set.clients} clients`, unit: "higher is better", higherIsBetter: true, value: (s) => s.concurrentQps, format: count },
-    { id: "p99", title: "p99 latency, 1 client", unit: "lower is better", higherIsBetter: false, value: (s) => s.operating.p99Ms, format: (v) => (v == null ? "—" : ms(v)) },
-    { id: "build", title: "Build time for 100,000 vectors", unit: "lower is better", higherIsBetter: false, value: (s) => s.buildSeconds, format: (v) => (v == null ? "—" : seconds(v)) },
-    { id: "memory", title: "Memory", unit: "lower is better", higherIsBetter: false, value: (s) => s.memoryBytes, format: gb },
-  ];
+const metricsFor = (set: BenchmarkSet): Metric[] => [
+  { id: "concurrent", title: `Throughput, ${set.clients} clients`, unit: "queries / s", higherIsBetter: true, verb: "faster", value: (s) => s.concurrentQps, format: count },
+  { id: "qps", title: "Throughput, one client", unit: "queries / s", higherIsBetter: true, verb: "faster", value: (s) => s.operating.qps, format: count },
+  { id: "p50", title: "Median latency", unit: "", higherIsBetter: false, verb: "lower", value: (s) => s.operating.p50Ms, format: ms },
+  { id: "p99", title: "Tail latency, p99", unit: "", higherIsBetter: false, verb: "lower", value: (s) => s.operating.p99Ms, format: ms },
+  { id: "build", title: `Time to index ${set.n.toLocaleString("en-US")} vectors`, unit: "", higherIsBetter: false, verb: "faster", value: (s) => s.buildSeconds, format: secs },
+  { id: "memory", title: "Memory", unit: "", higherIsBetter: false, verb: "less", value: (s) => s.memoryBytes, format: gb },
+];
+
+type Relation = { tone: "win" | "loss" | "even"; text: string };
+
+/** Within 10% is "on par": one run on a shared machine can't separate closer results. */
+function relation(metric: Metric, ours: BenchSystem, rival: BenchSystem): Relation | null {
+  const a = metric.value(ours);
+  const b = metric.value(rival);
+  if (a == null || b == null || a <= 0 || b <= 0) return null;
+  const factor = metric.higherIsBetter ? a / b : b / a;
+  const name = who(rival).name;
+  if (factor >= 1.1) return { tone: "win", text: `${factor >= 1.95 ? `${factor.toFixed(1)}×` : `${Math.round((factor - 1) * 100)}%`} ${metric.verb} than ${name}` };
+  if (factor <= 1 / 1.1) return { tone: "loss", text: `${Math.round((1 - factor) * 100)}% behind ${name}` };
+  return { tone: "even", text: `on par with ${name}` };
 }
 
-const NEXT_STEPS: Record<string, string> = {
-  qps: "Serve more of the request path outside Python: a compiled HTTP front end for queries, as the query fast path already does for routing.",
-  concurrent: "Micro-batch concurrent queries into one FAISS call, so a burst of requests shares a single thread hop and all cores.",
-  p99: "Pin search threads and keep FAISS's thread pool from oversubscribing cores under load.",
-  build: "Parallel graph construction during bulk loads, and a streaming binary upsert that skips JSON entirely.",
-  memory: "Quantized indexes (SQ8, then PQ) — 4–8× less memory for vectors — are next on the roadmap.",
-};
-
-function Verdicts({ ours, rivals, metric }: { ours: BenchSystem; rivals: BenchSystem[]; metric: Metric }) {
+function Relations({ metric, ours, rivals }: { metric: Metric; ours: BenchSystem; rivals: BenchSystem[] }) {
   return (
-    <div className="bench-vs">
+    <>
       {rivals.map((rival) => {
-        const verdict = versus(metric.value(ours), metric.value(rival), metric.higherIsBetter);
-        return verdict && (
-          <span key={rival.key} className={`vs vs-${verdict.tone}`} title={`${rival.name}: ${metric.format(metric.value(rival))}`}>
-            {verdict.label} vs {rival.name.replace(/ \(.*\)$/, "")}
+        const r = relation(metric, ours, rival);
+        return r && <span key={rival.key} className={`rel rel-${r.tone}`}>{r.text}</span>;
+      })}
+    </>
+  );
+}
+
+// ---- hero ---------------------------------------------------------------------------------------
+
+function Hero({ set, ours, rivals, faiss }: { set: BenchmarkSet; ours: BenchSystem; rivals: BenchSystem[]; faiss?: BenchSystem }) {
+  const m = metricsFor(set);
+  const concurrent = m.find((x) => x.id === "concurrent")!;
+  const build = m.find((x) => x.id === "build")!;
+  const narrow = ours.filtered["0.1%"];
+  return (
+    <div className="bench-hero">
+      <div className="bench-hero-eyebrow">
+        <BrandMark size={22} />
+        <span><b>{set.n.toLocaleString("en-US")}</b> OpenAI embeddings · <b>{set.dimension.toLocaleString("en-US")}</b> dimensions · at 95% recall</span>
+      </div>
+      <div className="bench-hero-stats">
+        <div className="bench-hero-stat">
+          <b>{count(ours.concurrentQps)}</b>
+          <span>queries per second with {set.clients} concurrent clients</span>
+          <div className="bench-hero-rel"><Relations metric={concurrent} ours={ours} rivals={rivals} /></div>
+        </div>
+        <div className="bench-hero-stat">
+          <b>{narrow ? `${Math.round(narrow.recall * 100)}%` : "—"}</b>
+          <span>recall when a filter keeps just 0.1% of the data</span>
+          {faiss && <div className="bench-hero-rel"><span className="rel rel-win">raw FAISS keeps {Math.round(faiss.filtered["0.1%"].recall * 100)}%</span></div>}
+        </div>
+        <div className="bench-hero-stat">
+          <b>{secs(ours.buildSeconds)}</b>
+          <span>to index {set.n.toLocaleString("en-US")} vectors, durably</span>
+          <div className="bench-hero-rel"><Relations metric={build} ours={ours} rivals={rivals} /></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- head to head ---------------------------------------------------------------------------------
+
+function HeadToHead({ metric, ours, systems }: { metric: Metric; ours: BenchSystem; systems: BenchSystem[] }) {
+  const rows = systems.filter((s) => metric.value(s) != null);
+  if (!rows.length || metric.value(ours) == null) return null;
+  const values = rows.map((s) => metric.value(s)!);
+  const max = Math.max(...values);
+  const best = metric.higherIsBetter ? Math.max(...values) : Math.min(...values);
+  return (
+    <section className="h2h">
+      <header>
+        <span className="h2h-title">{metric.title}</span>
+        <span className="h2h-note">{metric.higherIsBetter ? "higher is better" : "lower is better"}</span>
+      </header>
+      <div className="h2h-lead"><b>{metric.format(metric.value(ours))}</b>{metric.unit && <span>{metric.unit}</span>}</div>
+      <div className="h2h-rel"><Relations metric={metric} ours={ours} rivals={rows.filter((s) => s.key !== ours.key)} /></div>
+      <ul className="h2h-bars">
+        {rows.map((s, i) => {
+          const v = metric.value(s)!;
+          return (
+            <li key={s.key} className={s.key === ours.key ? "ours" : ""}>
+              <span className="h2h-name"><Mark system={s} size={14} />{who(s).name}</span>
+              <span className="h2h-track">
+                <i style={{ width: `${Math.max(2.5, (v / max) * 100)}%`, background: s.key === ours.key ? undefined : who(s).color, animationDelay: `${i * 70}ms` }} />
+              </span>
+              <span className="h2h-value">{metric.format(v)}{v === best && rows.length > 1 && <em>best</em>}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+// ---- charts -------------------------------------------------------------------------------------------
+
+function Legend({ systems }: { systems: BenchSystem[] }) {
+  return (
+    <div className="bench-legend">
+      {systems.map((s) => {
+        const id = who(s);
+        return (
+          <span key={s.key}>
+            <svg width="22" height="8" aria-hidden="true">
+              <line x1="1" x2="21" y1="4" y2="4" stroke={id.color} strokeWidth={isOurs(s) ? 3 : 2} strokeDasharray={id.dashed ? "4 3" : undefined} strokeLinecap="round" />
+            </svg>
+            <Mark system={s} size={14} />{id.name}
           </span>
         );
       })}
@@ -61,79 +170,266 @@ function Verdicts({ ours, rivals, metric }: { ours: BenchSystem; rivals: BenchSy
   );
 }
 
-function Bars({ metric, systems, highlight }: { metric: Metric; systems: BenchSystem[]; highlight: string }) {
-  const rows = systems.filter((s) => metric.value(s) != null);
-  const max = Math.max(...rows.map((s) => metric.value(s) ?? 0), 1);
+function usePlotPointer(width: number, height: number) {
+  const ref = useRef<SVGSVGElement>(null);
+  const toPlot = (e: PointerEvent<SVGSVGElement>) => {
+    const rect = ref.current!.getBoundingClientRect();
+    return [((e.clientX - rect.left) / rect.width) * width, ((e.clientY - rect.top) / rect.height) * height] as const;
+  };
+  return { ref, toPlot };
+}
+
+function logTicks(lo: number, hi: number) {
+  const out: number[] = [];
+  for (let e = Math.floor(lo); e <= Math.ceil(hi); e++) {
+    for (const m of [1, 2, 5]) {
+      const v = m * 10 ** e;
+      if (Math.log10(v) >= lo && Math.log10(v) <= hi) out.push(v);
+    }
+  }
+  return out;
+}
+
+function SpeedRecall({ systems }: { systems: BenchSystem[] }) {
+  const W = 720;
+  const H = 330;
+  const pad = { l: 48, r: 18, t: 26, b: 42 };
+  const [hover, setHover] = useState<{ s: BenchSystem; p: BenchPoint } | null>(null);
+  const { ref, toPlot } = usePlotPointer(W, H);
+  const all = systems.flatMap((s) => s.sweep.filter((p) => p.qps > 0).map((p) => ({ s, p })));
+  const minRecall = Math.min(0.85, Math.floor(Math.min(...all.map((d) => d.p.recall)) * 20) / 20);
+  const lo = Math.log10(Math.min(...all.map((d) => d.p.qps)) * 0.75);
+  const hi = Math.log10(Math.max(...all.map((d) => d.p.qps)) * 1.3);
+  const x = (r: number) => pad.l + ((r - minRecall) / (1 - minRecall)) * (W - pad.l - pad.r);
+  const y = (q: number) => pad.t + (1 - (Math.log10(q) - lo) / (hi - lo)) * (H - pad.t - pad.b);
+  const recallTicks = [0.85, 0.9, 0.95, 1].filter((r) => r >= minRecall);
+
+  function onMove(e: PointerEvent<SVGSVGElement>) {
+    const [mx, my] = toPlot(e);
+    let best: { s: BenchSystem; p: BenchPoint } | null = null;
+    let bestDist = 900;
+    for (const d of all) {
+      const dist = (x(d.p.recall) - mx) ** 2 + (y(d.p.qps) - my) ** 2;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = d;
+      }
+    }
+    setHover(best);
+  }
+
+  const order = [...systems].sort((a, b) => Number(isOurs(a)) - Number(isOurs(b)));
   return (
-    <figure className="bench-bars">
-      <figcaption><b>{metric.title}</b><span>{metric.unit}</span></figcaption>
-      {rows.map((s) => {
-        const v = metric.value(s) ?? 0;
-        return (
-          <div key={s.key} className={`bench-bar ${s.key === highlight ? "ours" : ""}`}>
-            <span className="bench-bar-name">{s.name}</span>
-            <span className="bench-bar-track"><i style={{ width: `${Math.max(1.5, (v / max) * 100)}%`, background: s.color }} /></span>
-            <span className="bench-bar-value">{metric.format(v)}</span>
+    <figure className="bench-figure">
+      <div className="bench-figure-head"><b>Throughput against recall</b><span>One client · each point is one search width · hover for details</span></div>
+      <div className="bench-plot">
+        <svg ref={ref} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Queries per second against recall@10"
+          onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
+          <rect x={x(0.95)} y={pad.t} width={W - pad.r - x(0.95)} height={H - pad.t - pad.b} rx={8} className="zone" />
+          <text x={x(0.95) + 8} y={pad.t + 15} className="zone-label">95%+ recall</text>
+          {logTicks(lo, hi).map((t) => (
+            <g key={t}>
+              <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} className="gridline" />
+              <text x={pad.l - 10} y={y(t)} className="axis" textAnchor="end" dominantBaseline="middle">{compact(t)}</text>
+            </g>
+          ))}
+          {recallTicks.map((r) => (
+            <text key={r} x={x(r)} y={H - pad.b + 20} className="axis" textAnchor="middle">{`${Math.round(r * 100)}%`}</text>
+          ))}
+          <text x={W - pad.r} y={H - 4} className="axis-title" textAnchor="end">recall@10</text>
+          <text x={pad.l - 10} y={12} className="axis-title" textAnchor="end">qps</text>
+          {order.map((s) => {
+            const id = who(s);
+            const pts = [...s.sweep].filter((p) => p.qps > 0).sort((a, b) => a.recall - b.recall);
+            const ours = isOurs(s);
+            return (
+              <g key={s.key} opacity={hover && hover.s.key !== s.key ? 0.35 : 1}>
+                {pts.length > 1 && (
+                  <path d={smooth(pts.map((p) => [x(p.recall), y(p.qps)]))} fill="none" stroke={id.color}
+                    strokeWidth={ours ? 3 : 2} strokeDasharray={id.dashed ? "5 4" : undefined} strokeLinecap="round" />
+                )}
+                {pts.map((p, i) => (
+                  <circle key={i} cx={x(p.recall)} cy={y(p.qps)} r={ours ? 4 : 3} fill={id.color} stroke="#f3f3f6" strokeWidth={1.5} />
+                ))}
+              </g>
+            );
+          })}
+          {hover && <circle cx={x(hover.p.recall)} cy={y(hover.p.qps)} r={9} fill="none" stroke={who(hover.s).color} strokeWidth={2} />}
+        </svg>
+        {hover && (
+          <div className="bench-tip" style={{ left: `${(Math.min(x(hover.p.recall), W - 190) / W) * 100}%`, top: `${(y(hover.p.qps) / H) * 100}%`, transform: "translate(-40%, calc(-100% - 16px))" }}>
+            <b><Mark system={hover.s} size={14} />{who(hover.s).name}</b>
+            <dl>
+              <dt>search width</dt><dd>{hover.p.ef ?? "exact"}</dd>
+              <dt>recall@10</dt><dd>{(hover.p.recall * 100).toFixed(1)}%</dd>
+              <dt>throughput</dt><dd>{count(hover.p.qps)} qps</dd>
+              <dt>p50 · p99</dt><dd>{ms(hover.p.p50Ms)} · {ms(hover.p.p99Ms)}</dd>
+            </dl>
           </div>
-        );
-      })}
+        )}
+      </div>
+      <Legend systems={systems} />
     </figure>
   );
 }
 
-function SweepChart({ set }: { set: BenchmarkSet }) {
-  const W = 680;
-  const H = 300;
-  const pad = { l: 56, r: 16, t: 14, b: 38 };
-  const points = set.systems.flatMap((s) => s.sweep);
-  const minRecall = Math.min(0.85, ...points.map((p) => p.recall));
-  const qpsValues = points.map((p) => p.qps).filter((v) => v > 0);
-  const lo = Math.log10(Math.min(...qpsValues) * 0.8);
-  const hi = Math.log10(Math.max(...qpsValues) * 1.25);
-  const x = (recall: number) => pad.l + ((recall - minRecall) / (1 - minRecall)) * (W - pad.l - pad.r);
-  const y = (qps: number) => pad.t + (1 - (Math.log10(qps) - lo) / (hi - lo)) * (H - pad.t - pad.b);
-  const ticks = [10, 30, 100, 300, 1000, 3000, 10000].filter((t) => Math.log10(t) >= lo && Math.log10(t) <= hi);
-  const recallTicks = [0.85, 0.9, 0.95, 1].filter((r) => r >= minRecall);
+const FILTERS = ["50%", "10%", "1%", "0.1%"] as const;
+
+function FilterRecall({ systems }: { systems: BenchSystem[] }) {
+  const W = 720;
+  const H = 290;
+  const pad = { l: 48, r: 132, t: 18, b: 42 };
+  const [column, setColumn] = useState<number | null>(null);
+  const { ref, toPlot } = usePlotPointer(W, H);
+  const x = (i: number) => pad.l + (i / (FILTERS.length - 1)) * (W - pad.l - pad.r);
+  const y = (r: number) => pad.t + (1 - r) * (H - pad.t - pad.b);
+  const order = [...systems].sort((a, b) => Number(isOurs(a)) - Number(isOurs(b)));
+  const labelled = systems.filter((s) => isOurs(s) || s.key === "faiss-hnsw");
+
   return (
-    <figure className="bench-chart">
-      <div className="bench-chart-scroll">
-        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Queries per second against recall for each system">
-          {ticks.map((t) => (
+    <figure className="bench-figure">
+      <div className="bench-figure-head"><b>Recall as the filter narrows</b><span>Share of the corpus the filter keeps · recall@10 against exact filtered results</span></div>
+      <div className="bench-plot">
+        <svg ref={ref} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Recall at each filter selectivity"
+          onPointerMove={(e) => {
+            const [mx] = toPlot(e);
+            const i = Math.round(((mx - pad.l) / (W - pad.l - pad.r)) * (FILTERS.length - 1));
+            setColumn(i >= 0 && i < FILTERS.length ? i : null);
+          }}
+          onPointerLeave={() => setColumn(null)}>
+          {[0, 0.25, 0.5, 0.75, 1].map((t) => (
             <g key={t}>
-              <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} className="bench-grid" />
-              <text x={pad.l - 8} y={y(t)} className="bench-axis" textAnchor="end" dominantBaseline="middle">{t >= 1000 ? `${t / 1000}k` : t}</text>
+              <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} className="gridline" />
+              <text x={pad.l - 10} y={y(t)} className="axis" textAnchor="end" dominantBaseline="middle">{`${t * 100}%`}</text>
             </g>
           ))}
-          {recallTicks.map((r) => (
-            <g key={r}>
-              <line x1={x(r)} x2={x(r)} y1={pad.t} y2={H - pad.b} className={`bench-grid ${r === 0.95 ? "target" : ""}`} />
-              <text x={x(r)} y={H - pad.b + 18} className="bench-axis" textAnchor="middle">{r.toFixed(2)}</text>
-            </g>
+          {FILTERS.map((f, i) => (
+            <text key={f} x={x(i)} y={H - pad.b + 20} className="axis" textAnchor="middle">{f} kept</text>
           ))}
-          <text x={(pad.l + W - pad.r) / 2} y={H - 4} className="bench-axis" textAnchor="middle">recall@10 →</text>
-          {set.systems.map((s) => {
-            const pts = [...s.sweep].sort((a, b) => a.recall - b.recall);
+          {column != null && <line x1={x(column)} x2={x(column)} y1={pad.t} y2={H - pad.b} className="guide" />}
+          {order.map((s) => {
+            const id = who(s);
+            const pts = FILTERS.map((f, i) => [x(i), y(s.filtered[f].recall)] as [number, number]);
             return (
               <g key={s.key}>
-                {pts.length > 1 && (
-                  <polyline points={pts.map((p) => `${x(p.recall).toFixed(1)},${y(p.qps).toFixed(1)}`).join(" ")}
-                    fill="none" stroke={s.color} strokeWidth={s.key.startsWith("needledb") ? 2.6 : 1.8} strokeLinejoin="round" />
-                )}
-                {pts.map((p, i) => (
-                  <circle key={i} cx={x(p.recall)} cy={y(p.qps)} r={3.4} fill={s.color} stroke="#fff" strokeWidth={1.4}>
-                    <title>{`${s.name} · ef ${p.ef ?? "—"} · recall ${p.recall.toFixed(3)} · ${count(p.qps)} qps · p99 ${ms(p.p99Ms)}`}</title>
-                  </circle>
-                ))}
+                <path d={smooth(pts)} fill="none" stroke={id.color} strokeWidth={isOurs(s) ? 3 : 2} strokeDasharray={id.dashed ? "5 4" : undefined} strokeLinecap="round" />
+                {pts.map(([px, py], i) => <circle key={i} cx={px} cy={py} r={isOurs(s) ? 4 : 3} fill={id.color} stroke="#f3f3f6" strokeWidth={1.5} />)}
+              </g>
+            );
+          })}
+          {labelled.map((s) => {
+            const last = s.filtered["0.1%"].recall;
+            const low = last < 0.9;
+            return (
+              <g key={s.key}>
+                <text x={x(FILTERS.length - 1) + 12} y={y(last) - (low ? 0 : 4)} className="direct" fill={low ? "#d33a44" : who(s).color} dominantBaseline="middle">
+                  {who(s).name} {Math.round(last * 100)}%
+                </text>
+                {low && <text x={x(FILTERS.length - 1) + 12} y={y(last) + 15} className="direct-sub" dominantBaseline="middle">misses most results</text>}
+              </g>
+            );
+          })}
+        </svg>
+        {column != null && (
+          <div className="bench-tip" style={{ left: `${(Math.min(x(column) + 14, W - 200) / W) * 100}%`, top: `${(pad.t / H) * 100}%` }}>
+            <b>Filter keeps {FILTERS[column]}</b>
+            <dl>
+              {systems.map((s) => (
+                <div key={s.key} className={`row ${isOurs(s) ? "ours" : ""}`}>
+                  <dt>{who(s).name}</dt>
+                  <dd>{(s.filtered[FILTERS[column]].recall * 100).toFixed(1)}% · {ms(s.filtered[FILTERS[column]].p50Ms)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
+      </div>
+      <Legend systems={systems} />
+    </figure>
+  );
+}
+
+/** Keep labels at least `gap` apart vertically while staying near their points. */
+function dodge(items: { key: string; y: number }[], gap: number): Record<string, number> {
+  const sorted = [...items].sort((a, b) => a.y - b.y).map((d) => ({ ...d }));
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].y - sorted[i - 1].y < gap) sorted[i].y = sorted[i - 1].y + gap;
+  }
+  return Object.fromEntries(sorted.map((d) => [d.key, d.y]));
+}
+
+function Scaling({ set, systems }: { set: BenchmarkSet; systems: BenchSystem[] }) {
+  const rows = systems.filter((s) => s.concurrentQps != null && s.operating.qps > 0);
+  if (!rows.length) return null;
+  const W = 720;
+  const H = 280;
+  const pad = { l: 150, r: 210, t: 26, b: 34 };
+  const values = rows.flatMap((s) => [s.operating.qps, s.concurrentQps!]);
+  const lo = Math.log10(Math.min(...values) * 0.8);
+  const hi = Math.log10(Math.max(...values) * 1.2);
+  const y = (q: number) => pad.t + (1 - (Math.log10(q) - lo) / (hi - lo)) * (H - pad.t - pad.b);
+  const left = pad.l;
+  const right = W - pad.r;
+  const leftLabels = dodge(rows.map((s) => ({ key: s.key, y: y(s.operating.qps) })), 17);
+  const rightLabels = dodge(rows.map((s) => ({ key: s.key, y: y(s.concurrentQps!) })), 17);
+  const order = [...rows].sort((a, b) => Number(isOurs(a)) - Number(isOurs(b)));
+  return (
+    <figure className="bench-figure">
+      <div className="bench-figure-head"><b>How throughput scales with concurrent clients</b><span>Same search width · higher is better</span></div>
+      <div className="bench-plot">
+        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Queries per second with one and ${set.clients} clients`}>
+          <text x={left} y={14} className="axis-title" textAnchor="middle">1 client</text>
+          <text x={right} y={14} className="axis-title" textAnchor="middle">{set.clients} clients</text>
+          <line x1={left} x2={left} y1={pad.t} y2={H - pad.b} className="gridline" />
+          <line x1={right} x2={right} y1={pad.t} y2={H - pad.b} className="gridline" />
+          {order.map((s) => {
+            const id = who(s);
+            const ours = isOurs(s);
+            const gain = s.concurrentQps! / s.operating.qps;
+            return (
+              <g key={s.key}>
+                <line x1={left} x2={right} y1={y(s.operating.qps)} y2={y(s.concurrentQps!)} stroke={id.color} strokeWidth={ours ? 3.5 : 2.2} strokeLinecap="round" strokeDasharray={id.dashed ? "5 4" : undefined} />
+                <circle cx={left} cy={y(s.operating.qps)} r={ours ? 5 : 4} fill={id.color} stroke="#f3f3f6" strokeWidth={2} />
+                <circle cx={right} cy={y(s.concurrentQps!)} r={ours ? 5 : 4} fill={id.color} stroke="#f3f3f6" strokeWidth={2} />
+                <text x={left - 14} y={leftLabels[s.key]} className="direct" textAnchor="end" dominantBaseline="middle" fill={ours ? id.color : "#5c5d66"}>
+                  {id.name} <tspan className="direct-sub">{count(s.operating.qps)}</tspan>
+                </text>
+                <text x={right + 14} y={rightLabels[s.key]} className="direct" dominantBaseline="middle" fill={ours ? id.color : "#5c5d66"}>
+                  {count(s.concurrentQps)} <tspan className="direct-sub">qps · {gain.toFixed(1)}× from 1 client</tspan>
+                </text>
               </g>
             );
           })}
         </svg>
       </div>
-      <figcaption className="bench-legend">
-        {set.systems.map((s) => <span key={s.key}><i style={{ background: s.color }} />{s.name}</span>)}
-        <span className="muted">Up and to the right is better · dashed line: 95% recall · 1 client</span>
-      </figcaption>
     </figure>
+  );
+}
+
+// ---- page -------------------------------------------------------------------------------------------------
+
+const NEXT_STEPS: Record<string, string> = {
+  concurrent: "Micro-batch concurrent queries into one FAISS call, so a burst of requests shares a single thread hop and every core.",
+  qps: "Move more of the request path out of Python with a compiled HTTP front end for queries.",
+  p50: "The same front-end work, since most of a query's time outside FAISS is request handling.",
+  p99: "Pin search threads and keep FAISS's thread pool from oversubscribing cores under load.",
+  build: "Parallel graph construction during bulk loads, and a streaming binary upsert that skips JSON.",
+  memory: "Quantized indexes (SQ8, then PQ) for 4–8× less vector memory are next on the roadmap.",
+};
+
+function Tabs<T extends string | number>({ label, value, options, onChange }: {
+  label: string;
+  value: T;
+  options: { value: T; label: ReactNode }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="chart-switch" role="tablist" aria-label={label}>
+      {options.map((o) => (
+        <button key={String(o.value)} type="button" role="tab" aria-selected={o.value === value} className={o.value === value ? "on" : ""}
+          onClick={() => onChange(o.value)}>{o.label}</button>
+      ))}
+    </div>
   );
 }
 
@@ -145,125 +441,107 @@ export function BenchmarksPage() {
   }
   const set = BENCHMARKS[Math.min(setIndex, BENCHMARKS.length - 1)];
   const by = Object.fromEntries(set.systems.map((s) => [s.key, s])) as Record<string, BenchSystem | undefined>;
-  const ours = mode === "docker" ? by["needledb-docker"] ?? by["needledb-server"] : by["needledb-server"] ?? by["needledb-docker"];
+  const ours = (mode === "docker" ? by["needledb-docker"] ?? by["needledb-server"] : by["needledb-server"] ?? by["needledb-docker"])!;
   const rivals = [by["qdrant-docker"], by["pgvector-docker"]].filter((s): s is BenchSystem => !!s);
-  const allMetrics = metrics(set);
-
-  const behind = ours ? allMetrics.flatMap((metric) => {
-    const lost = rivals
-      .map((rival) => ({ rival, verdict: versus(metric.value(ours), metric.value(rival), metric.higherIsBetter) }))
-      .filter((r) => r.verdict?.tone === "loss");
-    return lost.length ? [{ metric, lost }] : [];
-  }) : [];
-
   const faiss = by["faiss-hnsw"];
   const embedded = by["needledb-embedded"];
+  const contenders = [ours, ...rivals];
+  const withReference = faiss ? [...contenders, faiss] : contenders;
+  const metrics = metricsFor(set);
+
+  const behind = metrics.flatMap((metric) => {
+    const lost = rivals.map((rival) => ({ rival, r: relation(metric, ours, rival) })).filter((d) => d.r?.tone === "loss");
+    return lost.length ? [{ metric, lost }] : [];
+  });
 
   return (
     <>
       <div className="bench-controls">
-        <div className="chart-switch" role="tablist" aria-label="Dataset">
-          {BENCHMARKS.map((b, i) => (
-            <button key={b.dataset} type="button" role="tab" aria-selected={i === setIndex} className={i === setIndex ? "on" : ""}
-              onClick={() => setSetIndex(i)}>
-              {b.dimension.toLocaleString("en-US")}-d
-            </button>
-          ))}
-        </div>
-        <div className="chart-switch" role="tablist" aria-label="NeedleDB row to compare">
-          <button type="button" role="tab" aria-selected={mode === "docker"} className={mode === "docker" ? "on" : ""} onClick={() => setMode("docker")}>Like for like (Docker)</button>
-          <button type="button" role="tab" aria-selected={mode === "native"} className={mode === "native" ? "on" : ""} onClick={() => setMode("native")}>Native server</button>
-        </div>
+        <Tabs label="Dataset" value={setIndex} onChange={setSetIndex}
+          options={BENCHMARKS.map((b, i) => ({ value: i, label: `${b.dimension.toLocaleString("en-US")} dimensions` }))} />
+        <Tabs label="Which NeedleDB" value={mode} onChange={setMode}
+          options={[{ value: "docker", label: "Like for like · all in Docker" }, { value: "native", label: "NeedleDB native" }]} />
       </div>
 
-      <p className="bench-lede">
-        {set.n.toLocaleString("en-US")} real OpenAI <C>text-embedding-3-large</C> vectors at {set.dimension.toLocaleString("en-US")} dimensions,
-        HNSW with <C>m={set.m}</C>, each system at the smallest search width reaching 95% recall@10.
+      {ours && <Hero set={set} ours={ours} rivals={rivals} faiss={faiss} />}
+
+      <p>
+        Real OpenAI <C>text-embedding-3-large</C> vectors, HNSW with <C>m={set.m}</C> for every system, each tuned to the smallest search width that reaches 95% recall@10.
         {mode === "docker"
-          ? " NeedleDB, Qdrant and pgvector all run in the same Docker VM with the same limits."
-          : " The native server runs on the host with every core; Qdrant and pgvector run in Docker, so this view favours NeedleDB."}
+          ? " NeedleDB, Qdrant and pgvector run in the same Docker VM with identical CPU and memory limits."
+          : " NeedleDB runs natively with every core while Qdrant and pgvector run in Docker — switch to like for like for the even view."}
       </p>
 
-      {ours && (
-        <div className="bench-cards">
-          {allMetrics.map((metric) => (
-            <div key={metric.id} className="bench-card">
-              <span className="bench-card-title">{metric.title}</span>
-              <b className="bench-card-value">{metric.format(metric.value(ours))}</b>
-              <Verdicts ours={ours} rivals={rivals} metric={metric} />
-            </div>
-          ))}
-          {faiss && ours.filtered["0.1%"] && (
-            <div className="bench-card">
-              <span className="bench-card-title">Recall with a 0.1% filter</span>
-              <b className="bench-card-value">{(ours.filtered["0.1%"].recall * 100).toFixed(1)}%</b>
-              <div className="bench-vs">
-                <span className="vs vs-win">raw FAISS: {(faiss.filtered["0.1%"].recall * 100).toFixed(1)}%</span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      <H2 id="throughput-and-latency">Throughput, latency, build and memory</H2>
-      <div className="bench-bar-groups">
-        {allMetrics.map((metric) => <Bars key={metric.id} metric={metric} systems={set.systems} highlight={ours?.key ?? ""} />)}
+      <H2 id="head-to-head">Head to head</H2>
+      <div className="h2h-grid">
+        {metrics.map((metric) => <HeadToHead key={metric.id} metric={metric} ours={ours} systems={contenders} />)}
       </div>
 
       <H2 id="recall-vs-speed">Recall against speed</H2>
-      <p>Every point is one search width. A faster system at the same recall sits higher; one that reaches more recall for its speed sits further right.</p>
-      <SweepChart set={set} />
+      <p>Approximate indexes trade recall for speed. Up and to the right is better; the shaded band is where production search usually runs.</p>
+      <SpeedRecall systems={withReference} />
+
+      <H2 id="concurrency">Under concurrent load</H2>
+      <Scaling set={set} systems={contenders} />
 
       <H2 id="filtered-search">Filtered search</H2>
-      <p>Recall@10 against exact filtered results, and median latency. The filter keeps the stated share of the corpus. Graph indexes that ignore the filter while searching lose most of their results on narrow filters.</p>
-      <div className="bench-table">
-      <DocTable head={["System", "50% kept", "10% kept", "1% kept", "0.1% kept"]} rows={set.systems.map((s) => [
-        <span className="bench-name"><i style={{ background: s.color }} />{s.name}</span>,
-        ...(["50%", "10%", "1%", "0.1%"] as const).map((k) => (
-          <span className={`bench-cell ${s.filtered[k].recall < 0.9 ? "low" : ""}`}>
-            <b>{s.filtered[k].recall.toFixed(3)}</b> · {ms(s.filtered[k].p50Ms)}
-          </span>
-        )),
-      ])} />
-      </div>
+      <p>
+        Filters are where approximate indexes quietly fail: search the graph first, filter afterwards, and a narrow filter leaves almost nothing.
+        NeedleDB plans each filtered query — scanning a small matching subset exactly, and widening the graph search for broad ones.
+      </p>
+      <FilterRecall systems={withReference} />
 
-      <H2 id="all-numbers">All numbers at 95% recall</H2>
-      <div className="bench-table">
-      <DocTable head={["System", "Transport", "Build", "Memory", "ef", "Recall", "p50", "p99", "QPS", `QPS, ${set.clients} clients`]}
-        rows={set.systems.map((s) => [
-          <span className="bench-name"><i style={{ background: s.color }} />{s.name}</span>,
-          s.transport, seconds(s.buildSeconds), gb(s.memoryBytes), s.operating.ef ?? "—", s.operating.recall.toFixed(3),
-          ms(s.operating.p50Ms), ms(s.operating.p99Ms), count(s.operating.qps),
-          s.concurrentQps == null ? "—" : `${count(s.concurrentQps)}${s.clientMode ? ` (${s.clientMode})` : ""}`,
-        ])} />
-      </div>
+      {embedded && faiss && (
+        <>
+          <H2 id="engine">The engine, in process</H2>
+          <p>Embedded in your Python process, NeedleDB runs close to raw FAISS while adding a durable log, deletes, namespaces and metadata filtering.</p>
+          <div className="h2h-grid">
+            {metrics.filter((m) => m.id === "qps" || m.id === "concurrent").map((metric) => (
+              <HeadToHead key={metric.id} metric={metric} ours={embedded} systems={[embedded, faiss]} />
+            ))}
+          </div>
+        </>
+      )}
 
       <H2 id="where-we-are-behind">Where NeedleDB is behind</H2>
       {behind.length === 0 ? (
-        <p>In this view NeedleDB is ahead of, or within 10% of, Qdrant and pgvector on every measure above.</p>
+        <p>In this view NeedleDB is ahead of, or within 10% of, Qdrant and pgvector on every measure.</p>
       ) : (
         <ul className="bench-behind">
           {behind.map(({ metric, lost }) => (
             <li key={metric.id}>
-              <b>{metric.title}.</b>{" "}
-              {lost.map(({ rival, verdict }) => `${verdict!.label} ${rival.name} (${metric.format(metric.value(ours!))} vs ${metric.format(metric.value(rival))})`).join("; ")}.
+              <b>{metric.title}:</b>{" "}
+              {lost.map(({ rival, r }) => `${r!.text} (${metric.format(metric.value(ours))} vs ${metric.format(metric.value(rival))})`).join("; ")}.
               <span className="bench-next">Next: {NEXT_STEPS[metric.id]}</span>
             </li>
           ))}
         </ul>
       )}
-      {faiss && embedded && (
-        <p>
-          Embedded in-process, NeedleDB answers at {count(embedded.operating.qps)} queries per second against raw FAISS's {count(faiss.operating.qps)} —
-          the difference is the durability log, tombstones and metadata that FAISS alone doesn't have.
-        </p>
-      )}
+
+      <H2 id="all-numbers">Every number</H2>
+      <div className="bench-table">
+        <DocTable head={["System", "Transport", "Build", "Memory", "ef", "Recall", "p50", "p99", "QPS", `QPS, ${set.clients} clients`]}
+          rows={set.systems.map((s) => [
+            <span className="bench-name"><Mark system={s} size={14} />{s.name}</span>,
+            s.transport, secs(s.buildSeconds), gb(s.memoryBytes), s.operating.ef ?? "—", s.operating.recall.toFixed(3),
+            ms(s.operating.p50Ms), ms(s.operating.p99Ms), count(s.operating.qps),
+            s.concurrentQps == null ? "—" : `${count(s.concurrentQps)}${s.clientMode ? ` (${s.clientMode})` : ""}`,
+          ])} />
+      </div>
+      <div className="bench-table">
+        <DocTable head={["System", "50% kept", "10% kept", "1% kept", "0.1% kept"]} rows={set.systems.map((s) => [
+          <span className="bench-name"><Mark system={s} size={14} />{s.name}</span>,
+          ...FILTERS.map((k) => (
+            <span className={`bench-cell ${s.filtered[k].recall < 0.9 ? "low" : ""}`}><b>{s.filtered[k].recall.toFixed(3)}</b> · {ms(s.filtered[k].p50Ms)}</span>
+          )),
+        ])} />
+      </div>
 
       <H2 id="pinecone">What about Pinecone?</H2>
       <p>
-        Pinecone isn't in these numbers. It's a managed service reached over the internet, so each query includes a network round trip and
-        runs on hardware you can't choose or match locally — a laptop benchmark wouldn't say anything fair about it.
-        The honest comparison is NeedleDB in the same cloud region as your Pinecone index, over HTTPS for both, with the same embeddings and recall target.
+        Pinecone isn't in these numbers. It's a managed service reached over the internet, so each query includes a network round trip and runs on hardware
+        that can't be matched on one machine. The fair comparison is NeedleDB in the same cloud region as a Pinecone index, over HTTPS for both, with the same
+        embeddings and recall target.
       </p>
 
       <H2 id="method">Method</H2>
@@ -272,8 +550,8 @@ export function BenchmarksPage() {
         <li><b>Latency.</b> One client, sequential, measured end to end: in-process calls for embedded engines, a real network round trip for servers.</li>
         <li><b>Concurrency.</b> {set.clients} clients for 10 seconds. Networked systems get one client process per connection; in-process engines use threads.</li>
         <li><b>Wire formats.</b> Qdrant over gRPC, Postgres over its binary protocol with prepared statements, NeedleDB over HTTP with base64 float32 vectors.</li>
-        <li><b>pgvector at 3,072-d</b> uses <C>halfvec</C> (float16), because its <C>vector</C> type indexes at most 2,000 dimensions.</li>
-        <li><b>One machine, one run.</b> Treat differences under 10% as noise. Runs shared the machine with unrelated CPU-heavy jobs, so absolute numbers are conservative; every system ran under the same conditions.</li>
+        <li><b>pgvector at 3,072 dimensions</b> uses <C>halfvec</C> (float16), because its <C>vector</C> type indexes at most 2,000 dimensions.</li>
+        <li><b>One machine, one run.</b> Differences under 10% are shown as “on par”. Runs shared the machine with unrelated CPU-heavy jobs, so absolute numbers are conservative; every system ran under the same conditions.</li>
       </ul>
       <Callout kind="note" title="Machine">
         {set.machine}{set.dockerVm ? ` · Docker VM ${set.dockerVm}` : ""}. Versions: {Object.entries(set.versions).map(([k, v]) => `${k} ${v}`).join(", ")}. Finished {set.finishedAt.slice(0, 10)}.

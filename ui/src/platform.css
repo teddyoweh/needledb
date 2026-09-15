@@ -716,45 +716,86 @@ select.cmp-topk { width: auto; height: 32px; margin-left: auto; padding-top: 0; 
 /* ---- benchmarks page ------------------------------------------------------------------------------------ */
 
 .docs-content .bench-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.bench-lede { color: var(--ink-2); }
-.bench-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr)); gap: 10px; }
-.bench-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 14px 12px; background: var(--fill); border-radius: 14px; }
-.bench-card-title { color: var(--ink-3); font-size: 12.5px; line-height: 1.35; }
-.bench-card-value { color: var(--ink); font-size: 24px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.bench-vs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.vs { display: inline-flex; align-items: center; height: 21px; padding: 0 7px; border-radius: 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
-.vs-win { background: var(--good-soft); color: var(--good); }
-.vs-loss { background: var(--bad-soft); color: var(--bad); }
-.vs-even { background: var(--card); color: var(--ink-3); }
+.bench-logo { display: block; flex: none; }
+.bench-dot { display: inline-block; flex: none; border-radius: 50%; }
 
-.docs-content .bench-bar-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); gap: 14px; }
-.bench-bars { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 14px; background: var(--fill); border-radius: 14px; }
-.bench-bars figcaption { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-.bench-bars figcaption b { font-size: 13.5px; }
-.bench-bars figcaption span { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; }
-.bench-bar { display: grid; grid-template-columns: 124px minmax(0, 1fr) 70px; align-items: center; gap: 8px; font-size: 12px; line-height: 1.3; }
-.bench-bar-name { overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
-.bench-bar-track { height: 10px; overflow: hidden; background: var(--card); border-radius: 999px; }
-.bench-bar-track i { display: block; height: 100%; border-radius: 999px; }
-.bench-bar-value { color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
-.bench-bar.ours .bench-bar-name, .bench-bar.ours .bench-bar-value { color: var(--ink); font-weight: 600; }
+.rel { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 7px; font-size: 12px; font-weight: 550; white-space: nowrap; }
+.rel-win { background: var(--good-soft); color: var(--good); }
+.rel-loss { background: var(--bad-soft); color: var(--bad); }
+.rel-even { background: var(--card); color: var(--ink-3); }
 
-.bench-chart { margin: 0; padding: 14px 14px 10px; background: var(--fill); border-radius: 14px; }
-.bench-chart-scroll { overflow-x: auto; }
-.bench-chart svg { display: block; width: 100%; min-width: 520px; height: auto; }
-.bench-grid { stroke: var(--fill-3); stroke-width: 1; }
-.bench-grid.target { stroke: var(--ink-4); stroke-dasharray: 4 4; }
-.bench-axis { fill: var(--ink-3); font: 11px var(--font); font-variant-numeric: tabular-nums; }
-.bench-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: var(--ink-2); font-size: 12px; }
-.bench-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.bench-legend i, .bench-name i { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 3px; }
+.docs-content .bench-hero { position: relative; overflow: hidden; padding: 22px 24px 22px; background: linear-gradient(135deg, #eef3ff 0%, #f6f8ff 55%, #f3f3f6 100%); color: var(--ink); border-radius: 22px; }
+.bench-hero::before {
+  content: ""; position: absolute; inset: 0 0 0 40%;
+  background-image: radial-gradient(rgb(47 107 255 / 0.16) 1.2px, transparent 1.4px); background-size: 14px 14px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 75%); mask-image: linear-gradient(90deg, transparent, #000 75%);
+}
+.bench-hero > * { position: relative; }
+.bench-hero-eyebrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--ink-2); font-size: 13px; }
+.bench-hero-eyebrow b { color: var(--ink); font-weight: 600; }
+.bench-hero-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 20px; }
+.bench-hero-stat { min-width: 0; }
+.bench-hero-stat b { display: block; color: var(--ink); font-size: 40px; line-height: 1.02; font-weight: 600; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
+.bench-hero-stat:first-child b { color: var(--accent); }
+.bench-hero-stat > span { display: block; margin-top: 6px; color: var(--ink-2); font-size: 13.5px; line-height: 1.4; }
+.bench-hero-rel { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+.bench-hero .rel-even { background: rgb(255 255 255 / 0.8); }
+
+.docs-content .h2h-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); gap: 12px; }
+.h2h { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 16px 16px 18px; background: var(--fill); border-radius: 18px; }
+.h2h header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.h2h-title { color: var(--ink); font-size: 13.5px; font-weight: 600; }
+.h2h-note { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; }
+.h2h-lead { display: flex; align-items: baseline; gap: 6px; }
+.h2h-lead b { color: var(--ink); font-size: 32px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.h2h-lead span { color: var(--ink-3); font-size: 13px; }
+.h2h-rel { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; }
+.docs-content .h2h-bars { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 0; padding: 0; list-style: none; }
+.docs-content .h2h-bars li { display: grid; grid-template-columns: 132px minmax(0, 1fr) 78px; align-items: center; gap: 10px; margin: 0; font-size: 12.5px; line-height: 1.3; }
+.h2h-name { display: inline-flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; color: var(--ink-2); white-space: nowrap; }
+.h2h-bars li.ours .h2h-name { color: var(--ink); font-weight: 600; }
+.h2h-track { height: 12px; overflow: hidden; background: var(--fill-2); border-radius: 999px; }
+.h2h-track i { display: block; height: 100%; border-radius: 999px; transform-origin: left center; animation: bench-grow 0.8s var(--ease) both; }
+.h2h-bars li.ours .h2h-track i { background: linear-gradient(90deg, #86abff, #2f6bff); }
+.h2h-value { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.h2h-bars li.ours .h2h-value { color: var(--ink); font-weight: 600; }
+.h2h-value em { padding: 1px 5px; border-radius: 5px; background: var(--good-soft); color: var(--good); font-size: 10.5px; font-style: normal; font-weight: 600; }
+@keyframes bench-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.docs-content .bench-figure { position: relative; margin: 0; padding: 16px 16px 14px; background: var(--fill); border-radius: 18px; }
+.bench-figure-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; margin: 0 2px 8px; }
+.bench-figure-head b { color: var(--ink); font-size: 14px; }
+.bench-figure-head span { color: var(--ink-3); font-size: 12.5px; }
+.bench-plot { position: relative; }
+.bench-plot svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: none; }
+.bench-plot .gridline { stroke: #e3e3e8; stroke-width: 1; }
+.bench-plot .axis { fill: var(--ink-3); font: 11px var(--font); font-variant-numeric: tabular-nums; }
+.bench-plot .axis-title { fill: var(--ink-3); font: 500 11.5px var(--font); }
+.bench-plot .zone { fill: rgb(47 107 255 / 0.06); }
+.bench-plot .zone-label { fill: var(--accent); font: 600 11px var(--font); }
+.bench-plot .guide { stroke: var(--ink-4); stroke-width: 1; stroke-dasharray: 3 4; }
+.bench-plot .direct { font: 600 12px var(--font); }
+.bench-plot .direct-sub { font: 500 11px var(--font); fill: var(--ink-3); }
+.bench-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 2px 0; color: var(--ink-2); font-size: 12.5px; }
+.bench-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.bench-tip { position: absolute; z-index: 3; min-width: 176px; padding: 10px 12px; background: #151518; color: #ececf0; border-radius: 12px; font-size: 12px; pointer-events: none; white-space: nowrap; animation: fade 0.12s both; }
+.bench-tip b { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; color: #fff; font-size: 12.5px; font-weight: 600; }
+.bench-tip dl { display: grid; grid-template-columns: auto auto; gap: 3px 16px; margin: 0; }
+.bench-tip dt { color: #9d9ea8; }
+.bench-tip dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.bench-tip .row { display: contents; }
+.bench-tip .row.ours dd, .bench-tip .row.ours dt { color: #fff; font-weight: 600; }
+
+.bench-table .doc-table th, .bench-table .doc-table td { white-space: nowrap; }
 .bench-name { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .bench-cell { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bench-cell.low b { color: var(--bad); }
-.docs-content .bench-behind li + li { margin-top: 10px; }
-.bench-next { display: block; margin-top: 2px; color: var(--ink-3); font-size: 14px; }
+.docs-content .bench-behind { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.docs-content .bench-behind li { margin: 0; padding: 12px 14px; background: var(--fill); border-radius: 13px; }
+.bench-behind b { color: var(--ink); }
+.bench-next { display: block; margin-top: 4px; color: var(--ink-3); font-size: 13.5px; }
 
-@media (max-width: 600px) {
-  .bench-bar { grid-template-columns: 92px minmax(0, 1fr) 62px; }
+@media (max-width: 720px) {
+  .bench-hero-stats { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .docs-content .h2h-bars li { grid-template-columns: 88px minmax(0, 1fr) 66px; }
 }
-.bench-table .doc-table th, .bench-table .doc-table td { white-space: nowrap; }

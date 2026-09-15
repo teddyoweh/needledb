@@ -12,7 +12,7 @@ function niceMax(v: number) {
 }
 
 /** Monotone cubic curve through the points: smooth, and never overshoots the data. */
-function smooth(points: [number, number][]): string {
+export function smooth(points: [number, number][]): string {
   const n = points.length;
   if (n === 0) return "";
   if (n < 3) return points.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
