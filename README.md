@@ -95,6 +95,11 @@ for page in index.list(prefix="sku-"):
 index.describe_index_stats().total_vector_count
 ```
 
+**Half-precision vectors.** Graph indexes keep their vectors in fp16: half the memory of float32 and
+faster to search, with recall unchanged (the rounding is far below what the graph itself approximates).
+Loading links the graph on float32 and the finished graph moves onto fp16 storage, so bulk loads cost
+nothing extra. Pass `storage="float32"` when `fetch` must return exactly the floats that were written.
+
 **Async** code gets the same methods, awaited, with parallel batch uploads:
 
 ```python

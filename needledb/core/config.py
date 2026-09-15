@@ -9,6 +9,9 @@ from ..errors import AlreadyExists, InvalidArgument, NeedleError, NotFound  # no
 
 METRICS = ("cosine", "dotproduct", "euclidean")
 INDEX_TYPES = ("auto", "flat", "hnsw")
+# How an HNSW index keeps its vectors. fp16 halves the memory, and searches faster,
+# at a precision far below what the graph itself already approximates.
+STORAGE = ("auto", "float32", "fp16")
 
 MAX_DIMENSION = 65_536
 MAX_ID_BYTES = 512
@@ -75,6 +78,7 @@ class IndexConfig:
     dimension: int
     metric: str = "cosine"
     index_type: str = "auto"
+    storage: str = "auto"
     hnsw: HNSWConfig = field(default_factory=HNSWConfig)
     embed: EmbedConfig | None = None
     created_at: str = field(
@@ -96,10 +100,17 @@ class IndexConfig:
             raise InvalidArgument(f"metric must be one of {', '.join(METRICS)}")
         if self.index_type not in INDEX_TYPES:
             raise InvalidArgument(f"index_type must be one of {', '.join(INDEX_TYPES)}")
+        if self.storage not in STORAGE:
+            raise InvalidArgument(f"storage must be one of {', '.join(STORAGE)}")
         self.hnsw.validate()
         if self.embed is not None:
             self.embed.validate(self.dimension)
         return self
+
+    @property
+    def half_precision(self) -> bool:
+        """Graph indexes default to fp16 vectors; exact (flat) ones always keep float32."""
+        return self.storage == "fp16" or (self.storage == "auto" and self.index_type != "flat")
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -125,6 +136,7 @@ class IndexConfig:
             dimension=dimension,
             metric=data.get("metric") or "cosine",
             index_type=data.get("index_type") or "auto",
+            storage=data.get("storage") or "auto",
             hnsw=HNSWConfig(**hnsw),
             embed=embed,
         )

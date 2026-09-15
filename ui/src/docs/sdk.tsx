@@ -144,13 +144,15 @@ with NeedleDB("${ORIGIN}") as db:       # closes connections on exit
           <p>Connections are pooled and kept alive. Use it as a context manager, or call <C>close()</C>. For asyncio code, <a href="#/docs/sdk/async">AsyncNeedleDB</a> has the same methods.</p>
         </Signature>
 
-        <Signature id="create_index" name="create_index" sig={`db.create_index(name, dimension=None, metric="cosine", index_type="auto", hnsw=None, embed=None, *, exist_ok=False) -> Obj`}
+        <Signature id="create_index" name="create_index" sig={`db.create_index(name, dimension=None, metric="cosine", index_type="auto", hnsw=None,
+                embed=None, storage="auto", *, exist_ok=False) -> Obj`}
           params={[
             { name: "name", type: "str", required: true, description: "1–45 lowercase letters, digits and hyphens." },
             { name: "dimension", type: "int | None", defaultValue: "None", description: "1–65,536. Required unless embed is set; then it defaults to the model's size." },
             { name: "metric", type: "str", defaultValue: '"cosine"', description: "cosine, dotproduct or euclidean." },
             { name: "index_type", type: "str", defaultValue: '"auto"', description: "auto, flat or hnsw." },
             { name: "hnsw", type: "dict | None", defaultValue: "None", description: "m, ef_construction and ef_search." },
+            { name: "storage", type: "str", defaultValue: '"auto"', description: <>auto, fp16 or float32. Graph indexes keep vectors in <a href="#/docs/guides/index-structures#storage">half precision</a> by default: half the memory, same recall.</> },
             { name: "embed", type: "dict | None", defaultValue: "None", description: <>{"{"}"provider": …, "model": …{"}"} to embed text on the server. See <a href="#/docs/guides/text-search">text search</a>.</> },
             { name: "exist_ok", type: "bool", defaultValue: "False", description: <>Return the existing index instead of raising <C>AlreadyExists</C>. Still raises if it has a different dimension or metric.</> },
           ]}

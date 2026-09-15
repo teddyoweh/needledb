@@ -27,9 +27,10 @@ class NeedleDBLocal:
 
     def create_index(self, name: str, dimension: int | None = None, metric: str = "cosine",
                      index_type: str = "auto", hnsw: dict | None = None, embed: dict | None = None,
-                     *, exist_ok: bool = False) -> Obj:
+                     storage: str = "auto", *, exist_ok: bool = False) -> Obj:
         cfg = self._config.from_dict({"name": name, "dimension": dimension, "metric": metric,
-                                      "index_type": index_type, "hnsw": hnsw, "embed": embed})
+                                      "index_type": index_type, "storage": storage, "hnsw": hnsw,
+                                      "embed": embed})
         try:
             return wrap(self._registry.create_index(cfg).summary())
         except AlreadyExists:

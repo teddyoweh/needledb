@@ -63,12 +63,12 @@ class NeedleDB:
 
     def create_index(self, name: str, dimension: int | None = None, metric: str = "cosine",
                      index_type: str = "auto", hnsw: dict | None = None, embed: dict | None = None,
-                     *, exist_ok: bool = False) -> Obj:
+                     storage: str = "auto", *, exist_ok: bool = False) -> Obj:
         """Create an index. With `embed={"provider": ..., "model": ...}` the server embeds text
         for you, and `dimension` defaults to the model's. With `exist_ok`, an existing index of the
         same dimension and metric is returned instead of raising `AlreadyExists`."""
         try:
-            return wrap(self.request("POST", "/indexes", index_body(name, dimension, metric, index_type, hnsw, embed)))
+            return wrap(self.request("POST", "/indexes", index_body(name, dimension, metric, index_type, hnsw, embed, storage)))
         except AlreadyExists:
             if not exist_ok:
                 raise

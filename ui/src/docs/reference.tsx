@@ -47,6 +47,7 @@ const INDEX_FIELDS: Field[] = [
   { name: "dimension", type: "integer", description: "Length of every vector." },
   { name: "metric", type: "string", description: "cosine, dotproduct or euclidean." },
   { name: "index_type", type: "string", description: "auto, flat or hnsw." },
+  { name: "storage", type: "string", description: "auto, fp16 or float32. Graph indexes default to fp16 vectors." },
   {
     name: "hnsw", type: "object", description: "Graph settings.", children: [
       { name: "m", type: "integer", description: "Links per node." },
@@ -75,6 +76,7 @@ const INDEX_EXAMPLE = `{
   "dimension": 1536,
   "metric": "cosine",
   "index_type": "auto",
+  "storage": "fp16",
   "hnsw": {"m": 32, "ef_construction": 200, "ef_search": 128},
   "embed": {"provider": "openai", "model": "text-embedding-3-small", "field": "text"},
   "created_at": "2026-09-14T18:02:11+00:00",
@@ -124,6 +126,7 @@ const ENDPOINTS: Endpoint[] = [
       },
       { name: "metric", type: "string", defaultValue: "cosine", description: "cosine, dotproduct or euclidean." },
       { name: "index_type", type: "string", defaultValue: "auto", description: <>auto, flat or hnsw. See <a href="#/docs/guides/index-structures">index structures</a>.</> },
+      { name: "storage", type: "string", defaultValue: "auto", description: <>auto, fp16 or float32. Graph indexes keep vectors in <a href="#/docs/guides/index-structures#storage">half precision</a> by default.</> },
       {
         name: "hnsw", type: "object", description: "Graph settings. Only used by hnsw and auto.", children: [
           { name: "m", type: "integer", defaultValue: "32", description: "Links per node, 4–128." },

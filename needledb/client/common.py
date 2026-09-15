@@ -42,8 +42,10 @@ def decode(status: int, content: bytes, text: str) -> Any:
 
 # ---- control plane ---------------------------------------------------------------------
 
-def index_body(name, dimension, metric, index_type, hnsw, embed) -> dict:
+def index_body(name, dimension, metric, index_type, hnsw, embed, storage=None) -> dict:
     body: dict = {"name": name, "metric": metric, "index_type": index_type}
+    if storage:
+        body["storage"] = storage
     if dimension is not None:
         body["dimension"] = dimension
     if hnsw:

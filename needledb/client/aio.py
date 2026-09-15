@@ -54,9 +54,9 @@ class AsyncNeedleDB:
 
     async def create_index(self, name: str, dimension: int | None = None, metric: str = "cosine",
                            index_type: str = "auto", hnsw: dict | None = None, embed: dict | None = None,
-                           *, exist_ok: bool = False) -> Obj:
+                           storage: str = "auto", *, exist_ok: bool = False) -> Obj:
         try:
-            return wrap(await self.request("POST", "/indexes", index_body(name, dimension, metric, index_type, hnsw, embed)))
+            return wrap(await self.request("POST", "/indexes", index_body(name, dimension, metric, index_type, hnsw, embed, storage)))
         except AlreadyExists:
             if not exist_ok:
                 raise

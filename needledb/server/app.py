@@ -28,6 +28,7 @@ from starlette.staticfiles import StaticFiles
 
 from .. import __version__
 from ..core import IndexConfig, Registry
+from ..core.cpu import tune_threads
 from ..core.metrics import Metrics
 from ..embed import catalog as embed_catalog
 from ..embed import PROVIDERS as EMBED_PROVIDERS
@@ -334,9 +335,13 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     lockout = Lockout()
     max_body = max_body_mb * 2**20
     run = to_thread.run_sync
+    cpus = tune_threads()
 
     @asynccontextmanager
     async def lifespan(_app):
+        # One worker thread per core the process may actually use: searches are CPU-bound,
+        # so more runnable threads than cores only adds context switches and tail latency.
+        to_thread.current_default_thread_limiter().total_tokens = max(4, cpus + 2)
         yield
         await run(registry.close)
         store.close()
@@ -637,6 +642,7 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
                 "dimension": body.get("dimension"),
                 "metric": body.get("metric"),
                 "index_type": _opt(body, "index_type", "indexType"),
+                "storage": body.get("storage"),
                 "hnsw": body.get("hnsw"),
                 "embed": body.get("embed"),
             })

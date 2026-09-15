@@ -413,6 +413,7 @@ class Index:
             "dimension": self.cfg.dimension,
             "metric": self.cfg.metric,
             "index_type": self.cfg.index_type,
+            "storage": "fp16" if any(c.half_precision for c in colls) else "float32",
             "hnsw": asdict(self.cfg.hnsw),
             "embed": asdict(self.cfg.embed) if self.cfg.embed else None,
             "created_at": self.cfg.created_at,
@@ -427,6 +428,7 @@ class Index:
     def wait_for_index(self, timeout: float | None = None) -> None:
         for coll in list(self.collections.values()):
             coll.wait_for_index(timeout)
+            coll.compact_storage()
 
     # ---- snapshots -------------------------------------------------------------------
 
@@ -445,6 +447,7 @@ class Index:
             seqs = []
             for ns, coll in list(self.collections.items()):
                 coll.wait_for_index()
+                coll.compact_storage()          # snapshot the small form, and serve from it
                 with coll.lock.read():
                     if self.collections.get(ns) is not coll:
                         continue                      # dropped by deleteAll meanwhile

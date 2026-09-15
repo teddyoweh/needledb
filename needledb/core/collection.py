@@ -11,6 +11,11 @@ the new state before it is swapped in.
 
 Cosine indexes store unit vectors (inner product == cosine similarity) and keep each
 record's original norm, so fetch returns exactly the values that were written.
+
+Graph indexes serve from fp16 vectors: half the memory of float32, faster to scan, and
+a rounding error far smaller than the graph's own approximation (recall is unchanged).
+Building and bulk loading happen on float32 storage, which is much faster to link, and
+the finished graph is transplanted onto fp16 storage at snapshot time.
 """
 from __future__ import annotations
 
@@ -38,6 +43,11 @@ from .rwlock import RWLock
 COMPACT_MIN_DEAD = 1_000
 COMPACT_FRACTION = 0.2
 _EXACT_CHUNK = 4_096
+# Storage moves between fp16 and float32 in chunks this size, and only above this many vectors.
+_RETYPE_CHUNK = 16_384
+_RETYPE_MIN = 4_096
+# An incoming batch at least this large is worth widening back to float32 to link.
+_WIDEN_BATCH = 2_000
 
 
 def _kmeans(x: np.ndarray, k: int, rng: np.random.Generator, iters: int = 30) -> np.ndarray:
@@ -94,6 +104,7 @@ class Collection:
         self._ann = ann
         self.ann_kind = kind
         self._storage = ann if kind == "flat" else faiss.downcast_index(ann.storage)
+        self._half = isinstance(self._storage, faiss.IndexScalarQuantizer)
         self.n = int(ann.ntotal)
         cap = max(self.n, 1024)
         self._norm = np.zeros(cap, np.float32)
@@ -108,15 +119,23 @@ class Collection:
         self.meta = meta
 
     def _vectors(self) -> np.ndarray:
-        """Zero-copy (n x d) view of the stored vectors. Valid until the next add, which
-        only happens under the write lock — so it is safe for the life of any read."""
+        """Zero-copy (n x d) view of the stored vectors, float32 or float16. Valid until the
+        next add, which only happens under the write lock — so it is safe for any read."""
         if self.n == 0:
             return np.empty((0, self.d), np.float32)
+        if self._half:
+            codes = faiss.rev_swig_ptr(self._storage.codes.data(), self.n * self.d * 2)
+            return codes.view(np.float16).reshape(self.n, self.d)
         return faiss.rev_swig_ptr(self._storage.get_xb(), self.n * self.d).reshape(self.n, self.d)
 
     def _original(self, slot: int) -> np.ndarray:
-        row = self._vectors()[slot]
-        return row * self._norm[slot] if self._cosine else row.copy()
+        row = self._vectors()[slot].astype(np.float32)
+        return row * self._norm[slot] if self._cosine else row
+
+    @property
+    def half_precision(self) -> bool:
+        """True when vectors are served from fp16 storage."""
+        return self._half
 
     @property
     def building(self) -> bool:
@@ -128,13 +147,14 @@ class Collection:
 
     def memory_bytes(self) -> int:
         """Estimate of resident bytes: vectors, HNSW links, and per-slot bookkeeping."""
-        vectors = self.n * self.d * 4
+        vectors = self.n * self.d * (2 if self._half else 4)
         links = self.n * self.cfg.hnsw.m * 2 * 4 * 1.05 if self.ann_kind == "hnsw" else 0
         return int(vectors + links + self.n * 5)
 
     # ---- writes (caller holds the write lock) ---------------------------------------
 
     def apply_upsert(self, ids: list[str], values: np.ndarray, metas: list[dict | None]) -> None:
+        self._widen_for(len(ids))
         """Insert or overwrite records. `values` are the original vectors (count x d)."""
         if not ids:
             return
@@ -212,6 +232,49 @@ class Collection:
             del self.id_to_slot[rid]
         self.meta.remove(slot)
         self.live -= 1
+
+    # ---- vector storage: fp16 to serve, float32 to build -----------------------------
+
+    def _storage_index(self, half: bool) -> faiss.Index:
+        if half:
+            return faiss.IndexScalarQuantizer(self.d, faiss.ScalarQuantizer.QT_fp16, self._faiss_metric)
+        return faiss.IndexFlatL2(self.d) if self._euclidean else faiss.IndexFlatIP(self.d)
+
+    def _retype(self, half: bool) -> None:
+        """Move the finished graph onto float16 or float32 storage. The graph itself is
+        untouched — only how each vector is stored — so results are unchanged.
+        The caller holds the write lock."""
+        if self.ann_kind != "hnsw" or self._half == half or self.n == 0:
+            return
+        source = self._vectors()
+        storage = self._storage_index(half)
+        if half:
+            storage.train(source[:1].astype(np.float32))       # fp16 has nothing to learn
+        for start in range(0, self.n, _RETYPE_CHUNK):          # chunked: no full float32 copy
+            storage.add(np.ascontiguousarray(source[start:start + _RETYPE_CHUNK], dtype=np.float32))
+        ann = faiss.IndexHNSWSQ(self.d, faiss.ScalarQuantizer.QT_fp16, self.cfg.hnsw.m, self._faiss_metric) \
+            if half else faiss.IndexHNSWFlat(self.d, self.cfg.hnsw.m, self._faiss_metric)
+        ann.hnsw = self._ann.hnsw                              # the links, as built
+        ann.storage = storage
+        ann.own_fields = True
+        ann.ntotal = storage.ntotal
+        ann.is_trained = True
+        del source
+        self._ann = ann
+        self._storage = faiss.downcast_index(ann.storage)
+        self._half = half
+
+    def compact_storage(self) -> None:
+        """Serve from fp16 once a load has settled. Safe to call at any time."""
+        if self.cfg.half_precision and not self._half and self.n >= _RETYPE_MIN:
+            with self.lock.write():
+                self._retype(True)
+
+    def _widen_for(self, incoming: int) -> None:
+        """Big loads link much faster against float32 vectors; snapshotting puts fp16 back.
+        The caller holds the write lock."""
+        if self._half and incoming >= _WIDEN_BATCH:
+            self._retype(False)
 
     # ---- background rebuild: flat -> HNSW, and compaction ----------------------------
 
@@ -397,7 +460,7 @@ class Collection:
         best_keys = np.empty(0, np.float32)
         for start in range(0, len(cand), _EXACT_CHUNK):
             chunk = cand[start:start + _EXACT_CHUNK]
-            dots = xb[chunk] @ q
+            dots = (xb[chunk].astype(np.float32) if self._half else xb[chunk]) @ q
             # Higher key is better; for euclidean the key is the negated squared distance.
             keys = (2.0 * dots - self._norm[chunk] ** 2 - qq) if self._euclidean else dots
             slots = np.concatenate([best_slots, chunk])

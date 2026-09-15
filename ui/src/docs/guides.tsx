@@ -332,6 +332,7 @@ docker compose -f deploy/docker-compose.yml up -d`} />
           [<C>hnsw</C>, "HNSW graph from the first vector", "Large collections where latency matters most"],
         ]} />
         <p>The structure is fixed at creation. To change it, create a new index and upsert into it.</p>
+        <p>Graph indexes store their vectors in <a href="#storage">half precision</a> by default, which halves memory and speeds up search.</p>
 
         <H2 id="hnsw">HNSW parameters</H2>
         <DocTable head={["Parameter", "Default", "Range", "Effect"]} rows={[
@@ -352,12 +353,30 @@ docker compose -f deploy/docker-compose.yml up -d`} />
           <Step title="Keep it at least top_k">Values below <C>top_k</C> return fewer good matches.</Step>
         </Steps>
 
+        <H2 id="storage">How vectors are stored</H2>
+        <p>
+          Graph indexes keep their vectors in <b>fp16</b>: half the memory of float32, and faster to search, because a
+          graph walk is limited by how fast vectors stream out of memory. The rounding is far smaller than the
+          approximation the graph itself makes — recall is unchanged, and filtered exact scans return the same records.
+        </p>
+        <DocTable head={["storage", "Bytes per dimension", "Used for"]} rows={[
+          [<C>auto</C>, "2 (fp16) for graph indexes, 4 for flat", "The default"],
+          [<C>fp16</C>, "2", "Always half precision, even for a flat index"],
+          [<C>float32</C>, "4", <>When <C>fetch</C> must return exactly the floats that were written</>],
+        ]} />
+        <CodeBlock lang="python" title="Python" code={`db.create_index("exact-values", dimension=1536, storage="float32")`} />
+        <p>
+          Loading always links the graph against float32 vectors, which is much faster, and the finished graph moves
+          onto fp16 storage when the load settles — so a bulk load costs nothing extra. <C>describe_index</C> reports
+          which storage an index is serving from.
+        </p>
+
         <H2 id="memory">Memory</H2>
-        <p>Vectors take 4 bytes per dimension. An HNSW graph adds about <C>m × 8.4</C> bytes per vector: roughly 270 bytes at the default <C>m</C> of 32.</p>
-        <DocTable head={["Vectors", "Dimension", "Flat", "HNSW, m = 32"]} rows={[
-          ["1 million", "768", "≈ 3.1 GB", "≈ 3.3 GB"],
-          ["1 million", "1,536", "≈ 6.1 GB", "≈ 6.4 GB"],
-          ["1 million", "3,072", "≈ 12.3 GB", "≈ 12.6 GB"],
+        <p>An HNSW graph adds about <C>m × 8.4</C> bytes per vector on top: roughly 270 bytes at the default <C>m</C> of 32.</p>
+        <DocTable head={["Vectors", "Dimension", "Flat (float32)", "HNSW, m = 32 (fp16)"]} rows={[
+          ["1 million", "768", "≈ 3.1 GB", "≈ 1.8 GB"],
+          ["1 million", "1,536", "≈ 6.1 GB", "≈ 3.4 GB"],
+          ["1 million", "3,072", "≈ 12.3 GB", "≈ 6.4 GB"],
         ]} />
       </>
     ),
@@ -387,6 +406,11 @@ docker compose -f deploy/docker-compose.yml up -d`} />
 
         <H2 id="concurrency">Concurrency</H2>
         <p>Queries run in worker threads and FAISS releases the GIL, so throughput scales with cores. Writes to a namespace briefly take its write lock; heavy ingestion into the same namespace you're querying will add tail latency.</p>
+        <p>
+          The server sizes its search pool to the CPUs it may actually use — inside a container that's the cgroup quota,
+          not the host's core count — so it never runs more searches at once than the machine will schedule, which is
+          what protects p99. Override it with <C>NEEDLEDB_CPUS</C> when you want a different budget.
+        </p>
 
         <H2 id="measuring">Measuring</H2>
         <p>The app's overview shows live requests per second and p50/p99 per index. For dashboards and alerts, scrape <a href={api("metrics")}>/metrics</a> with Prometheus. Every query response also reports its own <C>usage.latencyMs</C> and <C>usage.plan</C>.</p>
