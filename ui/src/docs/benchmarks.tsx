@@ -9,15 +9,15 @@ import { C, Callout, DocTable, H2, H3 } from "./parts";
 
 type Identity = { name: string; color: string; logo?: string; dashed?: boolean };
 
-// One highlight colour for NeedleDB; competitors stay quiet so the comparison reads at a glance.
+// A colour per system, checked for colourblind separation and contrast against the page.
 const IDENTITY: Record<string, Identity> = {
   "needledb-server": { name: "NeedleDB", color: "#2f6bff" },
   "needledb-docker": { name: "NeedleDB", color: "#2f6bff" },
-  "needledb-embedded": { name: "NeedleDB embedded", color: "#2f6bff" },
-  "qdrant-docker": { name: "Qdrant", color: "#8b8c96", logo: "qdrant" },
-  "pgvector-docker": { name: "pgvector", color: "#c0c1c8", logo: "postgresql" },
-  "faiss-hnsw": { name: "Raw FAISS", color: "#a6a7af", logo: "meta", dashed: true },
-  "numpy-exact": { name: "Brute force", color: "#d0d1d6", dashed: true },
+  "needledb-embedded": { name: "Embedded", color: "#2f6bff" },
+  "qdrant-docker": { name: "Qdrant", color: "#dc244c", logo: "qdrant" },
+  "pgvector-docker": { name: "pgvector", color: "#0d9488", logo: "postgresql" },
+  "faiss-hnsw": { name: "Raw FAISS", color: "#c2670a", logo: "meta", dashed: true },
+  "numpy-exact": { name: "Brute force", color: "#7c5cd6", dashed: true },
 };
 
 const who = (s: BenchSystem): Identity => IDENTITY[s.key] ?? { name: s.name, color: "#999999" };
@@ -139,7 +139,11 @@ function HeadToHead({ metric, ours, systems }: { metric: Metric; ours: BenchSyst
             <li key={s.key} className={s.key === ours.key ? "ours" : ""}>
               <span className="h2h-name"><Mark system={s} size={14} />{who(s).name}</span>
               <span className="h2h-track">
-                <i style={{ width: `${Math.max(2.5, (v / max) * 100)}%`, background: s.key === ours.key ? undefined : who(s).color, animationDelay: `${i * 70}ms` }} />
+                <i style={{
+                  width: `${Math.max(2.5, (v / max) * 100)}%`,
+                  background: `linear-gradient(90deg, color-mix(in oklab, ${who(s).color} 52%, #fff), ${who(s).color})`,
+                  animationDelay: `${i * 70}ms`,
+                }} />
               </span>
               <span className="h2h-value">{metric.format(v)}{v === best && rows.length > 1 && <em>best</em>}</span>
             </li>
@@ -158,14 +162,38 @@ function Legend({ systems }: { systems: BenchSystem[] }) {
       {systems.map((s) => {
         const id = who(s);
         return (
-          <span key={s.key}>
-            <svg width="22" height="8" aria-hidden="true">
-              <line x1="1" x2="21" y1="4" y2="4" stroke={id.color} strokeWidth={isOurs(s) ? 3 : 2} strokeDasharray={id.dashed ? "4 3" : undefined} strokeLinecap="round" />
-            </svg>
-            <Mark system={s} size={14} />{id.name}
+          <span key={s.key} className={isOurs(s) ? "on" : ""}>
+            <i className={id.dashed ? "dash" : ""} style={{ background: id.color }} />
+            {id.name}
           </span>
         );
       })}
+    </div>
+  );
+}
+
+/** A dark card that names a system and lists its numbers, following the cursor. */
+function Tip({ x, y, width, height, children, place = "above" }: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  children: ReactNode;
+  place?: "above" | "right";
+}) {
+  const style = place === "above"
+    ? { left: `${(Math.min(Math.max(x, 96), width - 96) / width) * 100}%`, top: `${(y / height) * 100}%`, transform: "translate(-50%, calc(-100% - 14px))" }
+    : { left: `${(Math.min(x + 14, width - 210) / width) * 100}%`, top: `${(y / height) * 100}%` };
+  return <div className="bench-tip" style={style}>{children}</div>;
+}
+
+function TipRow({ system, value, detail, faint }: { system: BenchSystem; value: string; detail?: string; faint?: boolean }) {
+  return (
+    <div className={`tip-row${faint ? " faint" : ""}`}>
+      <i style={{ background: who(system).color }} />
+      <span>{who(system).name}</span>
+      <b>{value}</b>
+      {detail && <em>{detail}</em>}
     </div>
   );
 }
@@ -221,10 +249,19 @@ function SpeedRecall({ systems }: { systems: BenchSystem[] }) {
   const order = [...systems].sort((a, b) => Number(isOurs(a)) - Number(isOurs(b)));
   return (
     <figure className="bench-figure">
-      <div className="bench-figure-head"><b>Throughput against recall</b><span>One client · each point is one search width · hover for details</span></div>
+      <div className="bench-figure-head">
+        <div><b>Throughput against recall</b><span>One client · each point is one search width</span></div>
+        <Legend systems={systems} />
+      </div>
       <div className="bench-plot">
         <svg ref={ref} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Queries per second against recall@10"
           onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
+          <defs>
+            <linearGradient id="bench-ours" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="#2f6bff" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="#2f6bff" stopOpacity="0" />
+            </linearGradient>
+          </defs>
           <rect x={x(0.95)} y={pad.t} width={W - pad.r - x(0.95)} height={H - pad.t - pad.b} rx={8} className="zone" />
           <text x={x(0.95) + 8} y={pad.t + 15} className="zone-label">95%+ recall</text>
           {logTicks(lo, hi).map((t) => (
@@ -242,10 +279,14 @@ function SpeedRecall({ systems }: { systems: BenchSystem[] }) {
             const id = who(s);
             const pts = [...s.sweep].filter((p) => p.qps > 0).sort((a, b) => a.recall - b.recall);
             const ours = isOurs(s);
+            const line = pts.length > 1 ? smooth(pts.map((p) => [x(p.recall), y(p.qps)])) : "";
             return (
-              <g key={s.key} opacity={hover && hover.s.key !== s.key ? 0.35 : 1}>
-                {pts.length > 1 && (
-                  <path d={smooth(pts.map((p) => [x(p.recall), y(p.qps)]))} fill="none" stroke={id.color}
+              <g key={s.key} opacity={hover && hover.s.key !== s.key ? 0.32 : 1}>
+                {line && ours && (
+                  <path d={`${line}L${x(pts[pts.length - 1].recall).toFixed(1)},${H - pad.b}L${x(pts[0].recall).toFixed(1)},${H - pad.b}Z`} fill="url(#bench-ours)" />
+                )}
+                {line && (
+                  <path d={line} fill="none" stroke={id.color}
                     strokeWidth={ours ? 3 : 2} strokeDasharray={id.dashed ? "5 4" : undefined} strokeLinecap="round" />
                 )}
                 {pts.map((p, i) => (
@@ -254,21 +295,25 @@ function SpeedRecall({ systems }: { systems: BenchSystem[] }) {
               </g>
             );
           })}
-          {hover && <circle cx={x(hover.p.recall)} cy={y(hover.p.qps)} r={9} fill="none" stroke={who(hover.s).color} strokeWidth={2} />}
+          {hover && (
+            <g>
+              <line x1={x(hover.p.recall)} x2={x(hover.p.recall)} y1={y(hover.p.qps)} y2={H - pad.b} className="guide" />
+              <circle cx={x(hover.p.recall)} cy={y(hover.p.qps)} r={6} fill={who(hover.s).color} stroke="#fff" strokeWidth={2.5} />
+            </g>
+          )}
         </svg>
         {hover && (
-          <div className="bench-tip" style={{ left: `${(Math.min(x(hover.p.recall), W - 190) / W) * 100}%`, top: `${(y(hover.p.qps) / H) * 100}%`, transform: "translate(-40%, calc(-100% - 16px))" }}>
-            <b><Mark system={hover.s} size={14} />{who(hover.s).name}</b>
+          <Tip x={x(hover.p.recall)} y={y(hover.p.qps)} width={W} height={H}>
+            <b><Mark system={hover.s} size={15} />{who(hover.s).name}</b>
+            <div className="tip-lead" style={{ color: who(hover.s).color }}>{count(hover.p.qps)} <span>queries / s</span></div>
             <dl>
-              <dt>search width</dt><dd>{hover.p.ef ?? "exact"}</dd>
               <dt>recall@10</dt><dd>{(hover.p.recall * 100).toFixed(1)}%</dd>
-              <dt>throughput</dt><dd>{count(hover.p.qps)} qps</dd>
+              <dt>search width</dt><dd>{hover.p.ef ?? "exact"}</dd>
               <dt>p50 · p99</dt><dd>{ms(hover.p.p50Ms)} · {ms(hover.p.p99Ms)}</dd>
             </dl>
-          </div>
+          </Tip>
         )}
       </div>
-      <Legend systems={systems} />
     </figure>
   );
 }
@@ -288,7 +333,10 @@ function FilterRecall({ systems }: { systems: BenchSystem[] }) {
 
   return (
     <figure className="bench-figure">
-      <div className="bench-figure-head"><b>Recall as the filter narrows</b><span>Share of the corpus the filter keeps · recall@10 against exact filtered results</span></div>
+      <div className="bench-figure-head">
+        <div><b>Recall as the filter narrows</b><span>Share of the corpus the filter keeps · recall@10 against exact filtered results</span></div>
+        <Legend systems={systems} />
+      </div>
       <div className="bench-plot">
         <svg ref={ref} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Recall at each filter selectivity"
           onPointerMove={(e) => {
@@ -331,20 +379,17 @@ function FilterRecall({ systems }: { systems: BenchSystem[] }) {
           })}
         </svg>
         {column != null && (
-          <div className="bench-tip" style={{ left: `${(Math.min(x(column) + 14, W - 200) / W) * 100}%`, top: `${(pad.t / H) * 100}%` }}>
-            <b>Filter keeps {FILTERS[column]}</b>
-            <dl>
-              {systems.map((s) => (
-                <div key={s.key} className={`row ${isOurs(s) ? "ours" : ""}`}>
-                  <dt>{who(s).name}</dt>
-                  <dd>{(s.filtered[FILTERS[column]].recall * 100).toFixed(1)}% · {ms(s.filtered[FILTERS[column]].p50Ms)}</dd>
-                </div>
+          <Tip x={x(column)} y={pad.t} width={W} height={H} place="right">
+            <b>Filter keeps {FILTERS[column]} of the data</b>
+            {[...systems]
+              .sort((a, b) => b.filtered[FILTERS[column]].recall - a.filtered[FILTERS[column]].recall)
+              .map((s) => (
+                <TipRow key={s.key} system={s} value={`${(s.filtered[FILTERS[column]].recall * 100).toFixed(1)}%`}
+                  detail={ms(s.filtered[FILTERS[column]].p50Ms)} faint={s.filtered[FILTERS[column]].recall < 0.9} />
               ))}
-            </dl>
-          </div>
+          </Tip>
         )}
       </div>
-      <Legend systems={systems} />
     </figure>
   );
 }

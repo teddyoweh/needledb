@@ -42,7 +42,11 @@ bench = ["qdrant-client>=1.9", "psycopg[binary]>=3.2", "pgvector>=0.3", "pyarrow
 needledb = "needledb.cli:main"
 
 [project.urls]
+Homepage = "https://github.com/teddyoweh/needledb"
+Documentation = "https://github.com/teddyoweh/needledb#readme"
 Repository = "https://github.com/teddyoweh/needledb"
+Issues = "https://github.com/teddyoweh/needledb/issues"
+Changelog = "https://github.com/teddyoweh/needledb/releases"
 
 [build-system]
 requires = ["hatchling>=1.24"]
