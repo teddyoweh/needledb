@@ -65,6 +65,7 @@ class Index:
         self._writes_since_snapshot = 0
         self._snapshot_lock = threading.Lock()
         self._settle: threading.Timer | None = None
+        self._last_write = 0.0
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -440,6 +441,7 @@ class Index:
     # ---- snapshots -------------------------------------------------------------------
 
     def _after_write(self, count: int) -> None:
+        self._last_write = time.monotonic()
         self._writes_since_snapshot += count
         if self._writes_since_snapshot >= SNAPSHOT_EVERY:
             self._writes_since_snapshot = 0
@@ -459,6 +461,8 @@ class Index:
         self._settle.start()
 
     def _settle_now(self) -> None:
+        if time.monotonic() - self._last_write < SETTLE_SECONDS:
+            return                                     # a write landed while the timer was pending
         for coll in list(self.collections.values()):
             if not coll.building:
                 coll.compact_storage(quiet_for=SETTLE_SECONDS)

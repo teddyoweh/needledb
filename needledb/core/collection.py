@@ -156,7 +156,6 @@ class Collection:
     # ---- writes (caller holds the write lock) ---------------------------------------
 
     def apply_upsert(self, ids: list[str], values: np.ndarray, metas: list[dict | None]) -> None:
-        self._last_write = time.monotonic()
         self._widen_for(len(ids))
         """Insert or overwrite records. `values` are the original vectors (count x d)."""
         if not ids:
@@ -185,6 +184,7 @@ class Collection:
         self._norm[start:start + count] = norms
         self._tomb[start:start + count] = False
         self._ann.add(np.ascontiguousarray(stored, dtype=np.float32))
+        self._last_write = time.monotonic()      # a batch can take seconds; quiet starts now
         for offset, rid in enumerate(ids):
             slot = start + offset
             self.slot_ids.append(rid)
@@ -206,7 +206,6 @@ class Collection:
         self.meta.add(slot, merged or None)
 
     def apply_delete(self, ids: list[str]) -> list[str]:
-        self._last_write = time.monotonic()
         removed = [rid for rid in ids if rid in self.id_to_slot]
         if not removed:
             return removed
@@ -226,6 +225,10 @@ class Collection:
         tomb = np.zeros(cap, bool)
         tomb[: self.n] = self._tomb[: self.n]
         self._norm, self._tomb = norm, tomb
+
+    def touch(self) -> None:
+        """Mark this moment as the last write, for the storage settle timer."""
+        self._last_write = time.monotonic()
 
     def _tombstone(self, slot: int) -> None:
         if self._tomb[slot]:
