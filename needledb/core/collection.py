@@ -23,6 +23,7 @@ import bisect
 import json
 import shutil
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -82,6 +83,7 @@ class Collection:
         self._cosine = cfg.metric == "cosine"
         self._faiss_metric = faiss.METRIC_L2 if self._euclidean else faiss.METRIC_INNER_PRODUCT
         self._job: threading.Thread | None = None
+        self._last_write = 0.0
         self._ops: list[tuple] | None = None
         self._generation = 0
         kind = "hnsw" if cfg.index_type == "hnsw" else "flat"
@@ -154,6 +156,7 @@ class Collection:
     # ---- writes (caller holds the write lock) ---------------------------------------
 
     def apply_upsert(self, ids: list[str], values: np.ndarray, metas: list[dict | None]) -> None:
+        self._last_write = time.monotonic()
         self._widen_for(len(ids))
         """Insert or overwrite records. `values` are the original vectors (count x d)."""
         if not ids:
@@ -203,6 +206,7 @@ class Collection:
         self.meta.add(slot, merged or None)
 
     def apply_delete(self, ids: list[str]) -> list[str]:
+        self._last_write = time.monotonic()
         removed = [rid for rid in ids if rid in self.id_to_slot]
         if not removed:
             return removed
@@ -264,10 +268,16 @@ class Collection:
         self._storage = faiss.downcast_index(ann.storage)
         self._half = half
 
-    def compact_storage(self) -> None:
-        """Serve from fp16 once a load has settled. Safe to call at any time."""
-        if self.cfg.half_precision and not self._half and self.n >= _RETYPE_MIN:
-            with self.lock.write():
+    def compact_storage(self, quiet_for: float = 0.0) -> None:
+        """Serve from fp16 once a load has settled. Safe to call at any time.
+
+        `quiet_for` seconds of no writes are re-checked after the write lock is taken: a long
+        batch can hold that lock for seconds, and compacting the moment it lets go would only
+        be undone by the next batch."""
+        if not (self.cfg.half_precision and not self._half and self.n >= _RETYPE_MIN):
+            return
+        with self.lock.write():
+            if time.monotonic() - self._last_write >= quiet_for:
                 self._retype(True)
 
     def _widen_for(self, incoming: int) -> None:

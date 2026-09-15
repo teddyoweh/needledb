@@ -461,7 +461,7 @@ class Index:
     def _settle_now(self) -> None:
         for coll in list(self.collections.values()):
             if not coll.building:
-                coll.compact_storage()
+                coll.compact_storage(quiet_for=SETTLE_SECONDS)
 
     def snapshot(self) -> None:
         """Snapshot every namespace, then purge delete markers all snapshots cover."""
