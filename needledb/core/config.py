@@ -41,16 +41,41 @@ class HNSWConfig:
 
 
 @dataclass
+class EmbedConfig:
+    """The model that turns this index's text into vectors."""
+    provider: str
+    model: str
+    field: str = "text"   # metadata field that keeps each record's source text
+
+    def validate(self, dimension: int) -> None:
+        from ..embed import get_model  # the catalog, without importing it for every index
+
+        if not isinstance(self.provider, str) or not isinstance(self.model, str):
+            raise InvalidArgument("embed needs a provider and a model")
+        model = get_model(self.provider, self.model)
+        if not model.supports(dimension):
+            sizes = ", ".join(str(d) for d in sorted({model.dimension, *model.dimensions}))
+            raise InvalidArgument(f"{model.name} produces {sizes}-dimensional vectors, not {dimension}")
+        if not isinstance(self.field, str) or not 0 < len(self.field) <= 64 or self.field.startswith("$"):
+            raise InvalidArgument("embed.field must be a metadata field name of 1-64 characters")
+
+
+@dataclass
 class IndexConfig:
     name: str
     dimension: int
     metric: str = "cosine"
     index_type: str = "auto"
     hnsw: HNSWConfig = field(default_factory=HNSWConfig)
+    embed: EmbedConfig | None = None
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds"))
 
     def validate(self) -> "IndexConfig":
+        if self.embed is not None and self.dimension is None:
+            from ..embed import get_model
+
+            get_model(self.embed.provider, self.embed.model)  # name the unknown model, not the missing dimension
         if not isinstance(self.name, str) or not _NAME_RE.match(self.name):
             raise InvalidArgument(
                 "index name must be 1-45 characters of lowercase letters, digits and "
@@ -63,6 +88,8 @@ class IndexConfig:
         if self.index_type not in INDEX_TYPES:
             raise InvalidArgument(f"index_type must be one of {', '.join(INDEX_TYPES)}")
         self.hnsw.validate()
+        if self.embed is not None:
+            self.embed.validate(self.dimension)
         return self
 
     def to_dict(self) -> dict:
@@ -77,12 +104,28 @@ class IndexConfig:
         unknown = set(hnsw) - known
         if unknown:
             raise InvalidArgument(f"unknown hnsw fields: {', '.join(sorted(unknown))}")
+        embed = data.get("embed")
+        if embed is not None:
+            if not isinstance(embed, dict):
+                raise InvalidArgument("embed must be an object with provider and model")
+            unknown = set(embed) - {"provider", "model", "field"}
+            if unknown:
+                raise InvalidArgument(f"unknown embed fields: {', '.join(sorted(unknown))}")
+            embed = EmbedConfig(provider=embed.get("provider"), model=embed.get("model"),
+                                field=embed.get("field") or "text")
+        dimension = data.get("dimension")
+        if dimension is None and embed is not None:
+            from ..embed import find_model
+
+            model = find_model(embed.provider, embed.model)
+            dimension = model.dimension if model else None
         cfg = cls(
             name=data.get("name"),
-            dimension=data.get("dimension"),
+            dimension=dimension,
             metric=data.get("metric") or "cosine",
             index_type=data.get("index_type") or "auto",
             hnsw=HNSWConfig(**hnsw),
+            embed=embed,
         )
         if data.get("created_at"):
             cfg.created_at = data["created_at"]

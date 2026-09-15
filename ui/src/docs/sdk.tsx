@@ -36,7 +36,8 @@ export const SDK: DocPage[] = [
     render: () => (
       <>
         <H2 id="install">Install</H2>
-        <CodeBlock lang="bash" title="Terminal" code={`pip install needledb        # Python 3.11–3.14`} />
+        <CodeBlock lang="bash" title="Terminal" code={`pip install needledb                 # Python 3.11–3.14
+pip install "needledb[local]"         # adds local embedding models`} />
 
         <H2 id="clients">Choose a client</H2>
         <CardGroup>
@@ -89,15 +90,17 @@ with NeedleDB("${ORIGIN}") as db:       # closes connections on exit
           <p>Connections are pooled and kept alive. Use it as a context manager, or call <C>close()</C>.</p>
         </Signature>
 
-        <Signature id="create_index" name="create_index" sig={`db.create_index(name, dimension, metric="cosine", index_type="auto", hnsw=None) -> Obj`}
+        <Signature id="create_index" name="create_index" sig={`db.create_index(name, dimension=None, metric="cosine", index_type="auto", hnsw=None, embed=None) -> Obj`}
           params={[
             { name: "name", type: "str", required: true, description: "1–45 lowercase letters, digits and hyphens." },
-            { name: "dimension", type: "int", required: true, description: "1–65,536." },
+            { name: "dimension", type: "int | None", defaultValue: "None", description: "1–65,536. Required unless embed is set; then it defaults to the model's size." },
             { name: "metric", type: "str", defaultValue: '"cosine"', description: "cosine, dotproduct or euclidean." },
             { name: "index_type", type: "str", defaultValue: '"auto"', description: "auto, flat or hnsw." },
             { name: "hnsw", type: "dict | None", defaultValue: "None", description: "m, ef_construction and ef_search." },
+            { name: "embed", type: "dict | None", defaultValue: "None", description: <>{"{"}"provider": …, "model": …{"}"} to embed text on the server. See <a href="#/docs/guides/text-search">text search</a>.</> },
           ]}
-          example={`db.create_index("products", dimension=1536, index_type="hnsw", hnsw={"m": 48})`}>
+          example={`db.create_index("products", dimension=1536, index_type="hnsw", hnsw={"m": 48})
+db.create_index("docs", embed={"provider": "openai", "model": "text-embedding-3-small"})`}>
           <p>Returns the new index's description.</p>
         </Signature>
 
@@ -138,6 +141,12 @@ db.revoke_key(key.id)`}>
           <p>Admin only. <C>create_key</C> returns the key's details plus <C>key</C>, the secret.</p>
         </Signature>
 
+        <Signature id="list_embedding_models" name="list_embedding_models" sig={`db.list_embedding_models() -> Obj`}
+          example={`catalog = db.list_embedding_models()
+ready = [p.id for p in catalog.providers if p.available]`}>
+          <p>The embedding providers and models the server supports, and which have keys set.</p>
+        </Signature>
+
         <Signature id="ops" name="health · stats · close" sig={`db.health() -> Obj
 db.stats() -> Obj
 db.close() -> None`}>
@@ -156,7 +165,7 @@ db.close() -> None`}>
       <>
         <Signature id="upsert" name="upsert" sig={`index.upsert(vectors, namespace=None, batch_size=None) -> Obj`}
           params={[
-            { name: "vectors", type: "Iterable", required: true, description: "Dicts with id, values and metadata, or (id, values) and (id, values, metadata) tuples." },
+            { name: "vectors", type: "Iterable", required: true, description: "Dicts with id, values and metadata, or (id, values) and (id, values, metadata) tuples. On an index with an embedding model, dicts can carry text instead of values." },
             NS,
             { name: "batch_size", type: "int | None", defaultValue: "500 remote, 10,000 embedded", description: "Records per request." },
           ]}
@@ -179,11 +188,12 @@ db.close() -> None`}>
           <p>The fast path for bulk loads from NumPy.</p>
         </Signature>
 
-        <Signature id="query" name="query" sig={`index.query(vector=None, *, id=None, top_k=10, namespace=None, filter=None,
+        <Signature id="query" name="query" sig={`index.query(vector=None, *, id=None, text=None, top_k=10, namespace=None, filter=None,
             include_values=False, include_metadata=False, ef_search=None) -> Obj`}
           params={[
             { name: "vector", type: "list[float] | ndarray", description: "Search from this vector." },
             { name: "id", type: "str", description: "Or search from this stored record." },
+            { name: "text", type: "str", description: "Or search by meaning, on an index with an embedding model." },
             { name: "top_k", type: "int", defaultValue: "10", description: "1–10,000." },
             NS,
             { name: "filter", type: "dict | None", defaultValue: "None", description: <>A <a href="#/docs/guides/filtering">metadata filter</a>.</> },
@@ -197,6 +207,12 @@ for m in res.matches:
     print(m.id, m.score, m.metadata)
 print(res.usage.plan)`}>
           <p>Returns <C>matches</C>, <C>namespace</C> and <C>usage</C>.</p>
+        </Signature>
+
+        <Signature id="search" name="search" sig={`index.search(text, top_k=10, *, namespace=None, filter=None, include_metadata=True) -> Obj`}
+          example={`res = index.search("shoes for rainy hikes", filter={"in_stock": True})
+print(res.matches[0].metadata["text"])`}>
+          <p>Search by meaning on an index with an embedding model. The same as <C>query(text=…)</C>, with metadata included.</p>
         </Signature>
 
         <Signature id="fetch" name="fetch" sig={`index.fetch(ids, namespace=None) -> Obj`}
@@ -289,6 +305,8 @@ with NeedleDBLocal("./vectors") as db:
           [<C>AlreadyExists</C>, "409", "The index name is taken."],
           [<C>PayloadTooLarge</C>, "413", "The request body is too large."],
           [<C>ResourceExhausted</C>, "429", "The address is locked out after failed attempts."],
+          [<C>FailedPrecondition</C>, "400", "The server isn't set up for the request, such as a missing provider key."],
+          [<C>Unavailable</C>, "502", "An embedding provider failed."],
           [<C>NeedleError</C>, "500", "Anything else."],
         ]} />
         <CodeBlock lang="python" title="Python" code={`from needledb.errors import AlreadyExists, NotFound

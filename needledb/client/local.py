@@ -23,10 +23,10 @@ class NeedleDBLocal:
         self._config = IndexConfig
         self._registry = Registry(path)
 
-    def create_index(self, name: str, dimension: int, metric: str = "cosine",
-                     index_type: str = "auto", hnsw: dict | None = None) -> Obj:
+    def create_index(self, name: str, dimension: int | None = None, metric: str = "cosine",
+                     index_type: str = "auto", hnsw: dict | None = None, embed: dict | None = None) -> Obj:
         cfg = self._config.from_dict({"name": name, "dimension": dimension, "metric": metric,
-                                      "index_type": index_type, "hnsw": hnsw})
+                                      "index_type": index_type, "hnsw": hnsw, "embed": embed})
         return wrap(self._registry.create_index(cfg).summary())
 
     def list_indexes(self) -> list[Obj]:

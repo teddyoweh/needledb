@@ -137,6 +137,28 @@ curl -s localhost:8080/indexes/products/query -H "Api-Key: $KEY" -H "Content-Typ
 fields in one object are an implicit `$and`. Metadata values are strings, numbers, booleans or
 lists of strings. A list field matches `$eq`/`$in` when any element matches.
 
+## Text search
+
+Give an index an embedding model and send text instead of vectors. NeedleDB embeds records
+on upsert and queries on search, and keeps the text in metadata.
+
+```python
+db.create_index("products", embed={"provider": "openai", "model": "text-embedding-3-small"})
+index = db.Index("products")
+index.upsert([{"id": "sku-1", "text": "Waterproof hiking boots", "metadata": {"price": 129}}])
+index.search("shoes for rainy hikes", top_k=5)
+```
+
+- Hosted: OpenAI, Cohere, Voyage AI, Google Gemini, Mistral AI and Jina AI, with keys read from
+  the server's environment (`OPENAI_API_KEY`, `COHERE_API_KEY`, `VOYAGE_API_KEY`, `GEMINI_API_KEY`,
+  `MISTRAL_API_KEY`, `JINA_API_KEY`). Keys are never stored with an index or returned by the API.
+- Local: BGE, MiniLM, Nomic, Arctic, mxbai and E5 on the server's CPU with
+  `pip install "needledb[local]"` — text never leaves the machine.
+- `GET /embeddings/models` lists every model and whether its provider is ready.
+
+Provider logos in the web app come from [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT);
+the marks belong to their owners.
+
 ## Choosing an index structure
 
 | `index_type` | Search | Use it when |
@@ -227,6 +249,8 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design.
 | `NEEDLEDB_SESSION_SECRET` | generated | pin the session signing secret (otherwise `_system/session.key`, mode 600) |
 | `NEEDLEDB_MAX_BODY_MB` | `64` | largest accepted request body |
 | `NEEDLEDB_SNAPSHOT_EVERY` | `50000` | writes between automatic snapshots |
+| `OPENAI_API_KEY`, `COHERE_API_KEY`, … | — | keys for hosted embedding models (see Text search) |
+| `NEEDLEDB_MODEL_CACHE` | fastembed default | where local embedding models are downloaded |
 
 ## Development
 

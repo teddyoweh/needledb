@@ -59,11 +59,17 @@ class NeedleDB:
 
     # ---- control plane ---------------------------------------------------------------
 
-    def create_index(self, name: str, dimension: int, metric: str = "cosine",
-                     index_type: str = "auto", hnsw: dict | None = None) -> Obj:
-        body = {"name": name, "dimension": dimension, "metric": metric, "index_type": index_type}
+    def create_index(self, name: str, dimension: int | None = None, metric: str = "cosine",
+                     index_type: str = "auto", hnsw: dict | None = None, embed: dict | None = None) -> Obj:
+        """Create an index. With `embed={"provider": ..., "model": ...}` the server embeds text
+        for you, and `dimension` defaults to the model's."""
+        body: dict = {"name": name, "metric": metric, "index_type": index_type}
+        if dimension is not None:
+            body["dimension"] = dimension
         if hnsw:
             body["hnsw"] = hnsw
+        if embed:
+            body["embed"] = embed
         return wrap(self.request("POST", "/indexes", body))
 
     def list_indexes(self) -> list[Obj]:
@@ -104,6 +110,10 @@ class NeedleDB:
     def revoke_key(self, key_id: str) -> None:
         self.request("DELETE", f"/keys/{key_id}")
 
+    def list_embedding_models(self) -> Obj:
+        """Embedding providers and models this server supports, and which have keys set."""
+        return wrap(self.request("GET", "/embeddings/models"))
+
     def health(self) -> Obj:
         return wrap(self.request("GET", "/health"))
 
@@ -134,9 +144,9 @@ class RemoteIndex(BaseIndex):
             body["namespace"] = namespace
         return self._db.request("POST", f"{self._base}/vectors/upsert", body)["upsertedCount"]
 
-    def _query(self, *, vector, id, top_k, namespace, filter, include_values, include_metadata, ef_search):
+    def _query(self, *, vector, id, text, top_k, namespace, filter, include_values, include_metadata, ef_search):
         body = {"topK": top_k, "includeValues": include_values, "includeMetadata": include_metadata}
-        for key, value in (("vector", vector), ("id", id), ("namespace", namespace),
+        for key, value in (("vector", vector), ("id", id), ("text", text), ("namespace", namespace),
                            ("filter", filter), ("efSearch", ef_search)):
             if value is not None:
                 body[key] = value

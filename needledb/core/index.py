@@ -147,9 +147,42 @@ class Index:
 
     # ---- data plane ------------------------------------------------------------------
 
+    def _embed_records(self, records):
+        """Give text records their vectors. Records that already have values pass through.
+
+        A text record is `{id, text, metadata?}`; any other top-level fields are treated as
+        metadata. The text itself is kept in metadata under the index's `embed.field`.
+        """
+        embed = self.cfg.embed
+        if embed is None or not isinstance(records, list) or not 0 < len(records) <= MAX_UPSERT_BATCH:
+            return records
+        out, pending, texts = list(records), [], []
+        for i, rec in enumerate(records):
+            if not isinstance(rec, dict) or rec.get("values") is not None:
+                continue
+            text = rec.get("text", rec.get(embed.field))
+            if text is None:
+                continue
+            if not isinstance(text, str) or not text.strip():
+                raise InvalidArgument(f"record {rec.get('id')!r} needs non-empty text")
+            metadata = rec.get("metadata")
+            if metadata is not None and not isinstance(metadata, dict):
+                raise InvalidArgument("metadata must be an object")
+            extra = {k: v for k, v in rec.items() if k not in ("id", "values", "metadata", "text", embed.field)}
+            out[i] = {"id": rec.get("id"), "metadata": {**extra, **(metadata or {}), embed.field: text}}
+            pending.append(i)
+            texts.append(text)
+        if texts:
+            from ..embed import embed_texts
+
+            vectors = embed_texts(embed.provider, embed.model, self.cfg.dimension, texts, "document")
+            for row, i in enumerate(pending):
+                out[i]["values"] = vectors[row]
+        return out
+
     def upsert(self, records, namespace: str | None = None) -> int:
         ns = self._namespace(namespace)
-        ids, mat, metas = self._validate_records(records)
+        ids, mat, metas = self._validate_records(self._embed_records(records))
         coll = self._collection(ns, create=True)
         with coll.lock.write():
             self.storage.upsert(ns, ids, mat, metas)
@@ -157,7 +190,7 @@ class Index:
         self._after_write(len(ids))
         return len(ids)
 
-    def query(self, *, vector=None, id: str | None = None, top_k: int = 10,
+    def query(self, *, vector=None, id: str | None = None, text: str | None = None, top_k: int = 10,
               namespace: str | None = None, filter: dict | None = None,
               include_values: bool = False, include_metadata: bool = False,
               ef_search: int | None = None) -> dict:
@@ -165,8 +198,17 @@ class Index:
         ns = self._namespace(namespace)
         if not isinstance(top_k, int) or isinstance(top_k, bool) or not 1 <= top_k <= MAX_TOP_K:
             raise InvalidArgument(f"topK must be an integer from 1 to {MAX_TOP_K}")
-        if (vector is None) == (id is None):
-            raise InvalidArgument("provide exactly one of vector or id")
+        if sum(x is not None for x in (vector, id, text)) != 1:
+            raise InvalidArgument("provide exactly one of vector, id or text")
+        embed_ms = None
+        if text is not None:
+            if self.cfg.embed is None:
+                raise InvalidArgument("this index has no embedding model, so it can't search by text; send a vector")
+            from ..embed import embed_texts
+
+            embed_started = time.perf_counter()
+            vector = embed_texts(self.cfg.embed.provider, self.cfg.embed.model, self.cfg.dimension, [text], "query")[0]
+            embed_ms = round((time.perf_counter() - embed_started) * 1000, 3)
         if ef_search is not None and (not isinstance(ef_search, int) or not 1 <= ef_search <= 10_000):
             raise InvalidArgument("efSearch must be an integer from 1 to 10000")
         if filter is not None and not isinstance(filter, dict):
@@ -195,7 +237,8 @@ class Index:
         return {
             "matches": [_match_dict(m, include_values, include_metadata) for m in matches],
             "namespace": ns,
-            "usage": {"latencyMs": round((time.perf_counter() - started) * 1000, 3), "plan": plan},
+            "usage": {"latencyMs": round((time.perf_counter() - started) * 1000, 3), "plan": plan,
+                      **({"embedMs": embed_ms} if embed_ms is not None else {})},
         }
 
     def fetch(self, ids: list[str], namespace: str | None = None, include_values: bool = True) -> dict:
@@ -345,6 +388,7 @@ class Index:
             "metric": self.cfg.metric,
             "index_type": self.cfg.index_type,
             "hnsw": asdict(self.cfg.hnsw),
+            "embed": asdict(self.cfg.embed) if self.cfg.embed else None,
             "created_at": self.cfg.created_at,
             "vectorCount": sum(c.live for c in colls),
             "namespaceCount": len(colls),

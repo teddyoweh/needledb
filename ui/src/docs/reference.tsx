@@ -54,6 +54,7 @@ const INDEX_FIELDS: Field[] = [
       { name: "ef_search", type: "integer", description: "Query-time candidate list size." },
     ],
   },
+  { name: "embed", type: "object | null", description: "The embedding model's provider, model and field, or null." },
   { name: "created_at", type: "string", description: "ISO 8601 creation time." },
   { name: "vectorCount", type: "integer", description: "Live vectors across all namespaces." },
   { name: "namespaceCount", type: "integer", description: "Number of namespaces." },
@@ -75,6 +76,7 @@ const INDEX_EXAMPLE = `{
   "metric": "cosine",
   "index_type": "auto",
   "hnsw": {"m": 32, "ef_construction": 200, "ef_search": 128},
+  "embed": {"provider": "openai", "model": "text-embedding-3-small", "field": "text"},
   "created_at": "2026-09-14T18:02:11+00:00",
   "vectorCount": 48210,
   "namespaceCount": 2,
@@ -112,7 +114,14 @@ const ENDPOINTS: Endpoint[] = [
     keywords: "new index",
     body: [
       { name: "name", type: "string", required: true, description: "1–45 lowercase letters, digits and hyphens, starting and ending with a letter or digit." },
-      { name: "dimension", type: "integer", required: true, description: "Vector length, from 1 to 65,536." },
+      { name: "dimension", type: "integer", description: "Vector length, from 1 to 65,536. Required unless embed is set; then it defaults to the model's size." },
+      {
+        name: "embed", type: "object", description: <>An embedding model, so records and queries can use text. See <a href="#/docs/guides/text-search">text search</a>.</>, children: [
+          { name: "provider", type: "string", required: true, description: "openai, cohere, voyage, google, mistral, jina or local." },
+          { name: "model", type: "string", required: true, description: <>A model id from <a href="#/docs/api/list-embedding-models">list embedding models</a>.</> },
+          { name: "field", type: "string", defaultValue: "text", description: "Metadata field that keeps each record's text." },
+        ],
+      },
       { name: "metric", type: "string", defaultValue: "cosine", description: "cosine, dotproduct or euclidean." },
       { name: "index_type", type: "string", defaultValue: "auto", description: <>auto, flat or hnsw. See <a href="#/docs/guides/index-structures">index structures</a>.</> },
       {
@@ -259,6 +268,49 @@ print(stats.total_vector_count)`,
 
   // ---- vectors -----------------------------------------------------------------------
   {
+    slug: "list-embedding-models", title: "List embedding models", group: "Embedding", method: "GET", path: "/embeddings/models", access: "read",
+    summary: "The embedding providers and models this server supports, and which are ready to use.",
+    keywords: "openai cohere voyage gemini mistral jina local fastembed catalog text",
+    about: <p>A provider is <C>available</C> when its key is set in the server's environment — or, for local models, when fastembed is installed. Keys are never returned. See <a href="#/docs/guides/text-search">text search</a>.</p>,
+    response: [
+      {
+        name: "providers", type: "object[]", description: "One per provider.", children: [
+          { name: "id", type: "string", description: "openai, cohere, voyage, google, mistral, jina or local." },
+          { name: "name", type: "string", description: "Display name." },
+          { name: "available", type: "boolean", description: "Whether the server can use it now." },
+          { name: "env", type: "string[]", description: "Environment variables that can hold its key." },
+          { name: "local", type: "boolean", description: "True for models that run on this server." },
+        ],
+      },
+      {
+        name: "models", type: "object[]", description: "One per model.", children: [
+          { name: "provider", type: "string", description: "Provider id." },
+          { name: "id", type: "string", description: "The value for embed.model." },
+          { name: "name", type: "string", description: "Display name." },
+          { name: "dimension", type: "integer", description: "Default output size." },
+          { name: "dimensions", type: "integer[]", description: "Every output size it supports." },
+          { name: "maxTokens", type: "integer", description: "Longest input it reads." },
+          { name: "multilingual", type: "boolean", description: "Whether it handles many languages." },
+          { name: "sizeMb", type: "integer | null", description: "Download size, for local models." },
+        ],
+      },
+    ],
+    curl: `curl ${ORIGIN}/embeddings/models ${H}`,
+    python: `for model in db.list_embedding_models().models:
+    print(model.provider, model.id, model.dimension)`,
+    example: `{
+  "providers": [
+    {"id": "openai", "name": "OpenAI", "available": true, "env": ["OPENAI_API_KEY"], "local": false},
+    {"id": "local", "name": "On this server", "available": false, "env": [], "local": true}
+  ],
+  "models": [
+    {"provider": "openai", "id": "text-embedding-3-small", "name": "text-embedding-3-small",
+     "dimension": 1536, "dimensions": [512, 1024, 1536], "description": "Fast and inexpensive. A strong default.",
+     "vendor": "openai", "maxTokens": 8192, "multilingual": true, "sizeMb": null}
+  ]
+}`,
+  },
+  {
     slug: "upsert", title: "Upsert vectors", group: "Vectors", method: "POST", path: "/indexes/{name}/vectors/upsert", access: "write",
     summary: "Insert records, or overwrite records with the same id.",
     keywords: "insert write add",
@@ -268,7 +320,8 @@ print(stats.total_vector_count)`,
       {
         name: "vectors", type: "object[]", required: true, description: "1–10,000 records.", children: [
           { name: "id", type: "string", required: true, description: "Up to 512 bytes." },
-          { name: "values", type: "number[]", required: true, description: "Exactly dimension finite numbers." },
+          { name: "values", type: "number[]", description: "Exactly dimension finite numbers. Required unless the record has text." },
+          { name: "text", type: "string", description: "On an index with an embedding model: text to embed instead of values. Kept in metadata." },
           { name: "metadata", type: "object", description: "Strings, numbers, booleans or lists of strings. Up to 40 KB." },
         ],
       },
@@ -287,11 +340,12 @@ print(stats.total_vector_count)`,
     slug: "query", title: "Query", group: "Vectors", method: "POST", path: "/indexes/{name}/query", access: "read",
     summary: "Find the nearest neighbours of a vector or a stored record.",
     keywords: "search similarity nearest top_k",
-    about: <p>Give exactly one of <C>vector</C> or <C>id</C>. Body fields also accept snake_case, such as <C>top_k</C>.</p>,
+    about: <p>Give exactly one of <C>vector</C>, <C>id</C> or <C>text</C>. Body fields also accept snake_case, such as <C>top_k</C>.</p>,
     pathParams: [NAME],
     body: [
       { name: "vector", type: "number[]", description: "The query vector. Exactly dimension numbers." },
       { name: "id", type: "string", description: "Search from this stored record instead." },
+      { name: "text", type: "string", description: "Search by meaning, on an index with an embedding model." },
       { name: "topK", type: "integer", defaultValue: "10", description: "Matches to return, 1–10,000." },
       NAMESPACE,
       FILTER,
@@ -304,7 +358,8 @@ print(stats.total_vector_count)`,
       { name: "namespace", type: "string", description: "The namespace searched." },
       {
         name: "usage", type: "object", description: "How the query ran.", children: [
-          { name: "latencyMs", type: "number", description: "Time spent in the engine." },
+          { name: "latencyMs", type: "number", description: "Time spent on the server, including embedding." },
+          { name: "embedMs", type: "number", description: "Time spent embedding the text, for text queries." },
           { name: "plan", type: "string", description: <>exact, hnsw, filtered-exact, filtered-hnsw or empty. See <a href="#/docs/guides/query">query plans</a>.</> },
         ],
       },
@@ -719,6 +774,8 @@ const OVERVIEW: DocPage[] = [
           ["409", <C>ALREADY_EXISTS</C>, "An index with that name exists.", <C>AlreadyExists</C>],
           ["413", <C>PAYLOAD_TOO_LARGE</C>, "The body is over the size limit.", <C>PayloadTooLarge</C>],
           ["429", <C>RESOURCE_EXHAUSTED</C>, "Too many failed attempts. Wait for Retry-After seconds.", <C>ResourceExhausted</C>],
+          ["400", <C>FAILED_PRECONDITION</C>, "The server isn't set up for this, such as an embedding provider without a key.", <C>FailedPrecondition</C>],
+          ["502", <C>UNAVAILABLE</C>, "An embedding provider failed or couldn't be reached.", <C>Unavailable</C>],
           ["500", <C>INTERNAL</C>, "Something went wrong on the server. Details are in its log.", <C>NeedleError</C>],
         ]} />
 
@@ -744,6 +801,7 @@ const OVERVIEW: DocPage[] = [
           ["Namespace name", "256 bytes"],
           ["Records per upsert", "10,000"],
           ["Ids per fetch", "1,000"],
+          ["Text per record or query", "100,000 characters, and the model's own token limit"],
         ]} />
 
         <H2 id="requests">Requests</H2>

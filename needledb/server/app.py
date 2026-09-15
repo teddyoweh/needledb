@@ -28,6 +28,7 @@ from starlette.staticfiles import StaticFiles
 from .. import __version__
 from ..core import IndexConfig, Registry
 from ..core.metrics import Metrics
+from ..embed import catalog as embed_catalog
 from ..errors import (
     InvalidArgument,
     NeedleError,
@@ -479,6 +480,11 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
 
     # ---- control plane ---------------------------------------------------------------
 
+    @app.get("/embeddings/models")
+    async def embedding_models(request: Request):
+        need(request, "read")
+        return _json(embed_catalog())
+
     @app.get("/indexes")
     async def list_indexes(request: Request):
         need(request, "read")
@@ -495,11 +501,13 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
                 "metric": body.get("metric"),
                 "index_type": _opt(body, "index_type", "indexType"),
                 "hnsw": body.get("hnsw"),
+                "embed": body.get("embed"),
             })
         except TypeError as exc:
             raise InvalidArgument(f"invalid index configuration: {exc}") from None
         index = await run(registry.create_index, cfg)
-        record(request, "index.created", cfg.name, {"dimension": cfg.dimension, "metric": cfg.metric})
+        record(request, "index.created", cfg.name, {"dimension": cfg.dimension, "metric": cfg.metric,
+                                                    **({"embed": f"{cfg.embed.provider}/{cfg.embed.model}"} if cfg.embed else {})})
         return _json(describe(index, request), 201)
 
     @app.get("/indexes/{name}")
@@ -549,6 +557,7 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
             return orjson.dumps(index.query(
                 vector=body.get("vector"),
                 id=body.get("id"),
+                text=body.get("text"),
                 top_k=_opt(body, "topK", "top_k", default=10),
                 namespace=body.get("namespace"),
                 filter=body.get("filter"),

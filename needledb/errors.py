@@ -46,5 +46,18 @@ class ResourceExhausted(NeedleError):
     status = 429
 
 
+class FailedPrecondition(NeedleError):
+    """The request is valid, but the server isn't set up for it (e.g. no provider key)."""
+    code = "FAILED_PRECONDITION"
+    status = 400
+
+
+class Unavailable(NeedleError):
+    """An upstream service, such as an embedding provider, failed."""
+    code = "UNAVAILABLE"
+    status = 502
+
+
 BY_CODE = {cls.code: cls for cls in (NeedleError, InvalidArgument, Unauthenticated, PermissionDenied,
-                                     NotFound, AlreadyExists, PayloadTooLarge, ResourceExhausted)}
+                                     NotFound, AlreadyExists, PayloadTooLarge, ResourceExhausted,
+                                     FailedPrecondition, Unavailable)}

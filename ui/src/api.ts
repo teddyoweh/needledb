@@ -58,12 +58,29 @@ export type AuditEvent = {
 export type MapPoint = { id: string; x: number; y: number; cluster: number; label: string | null; group?: string | null };
 export type VectorMap = { namespace: string; total: number; sampled: number; explained: [number, number]; points: MapPoint[]; colorFields: string[] };
 
+export type EmbedConfig = { provider: string; model: string; field: string };
+export type EmbeddingProvider = { id: string; name: string; available: boolean; env: string[]; local: boolean };
+export type EmbeddingModel = {
+  provider: string;
+  id: string;
+  name: string;
+  dimension: number;
+  dimensions: number[];
+  description: string;
+  vendor: string;
+  maxTokens: number;
+  multilingual: boolean;
+  sizeMb: number | null;
+};
+export type EmbeddingCatalog = { providers: EmbeddingProvider[]; models: EmbeddingModel[] };
+
 export type IndexInfo = {
   name: string;
   dimension: number;
   metric: Metric;
   index_type: IndexType;
   hnsw: { m: number; ef_construction: number; ef_search: number };
+  embed: EmbedConfig | null;
   created_at: string;
   vectorCount: number;
   namespaceCount: number;
@@ -101,7 +118,7 @@ export type Stats = {
 
 export type Metadata = Record<string, string | number | boolean | string[]>;
 export type Match = { id: string; score: number | null; values?: number[]; metadata?: Metadata | null };
-export type QueryResult = { matches: Match[]; namespace: string; usage: { latencyMs: number; plan: string } };
+export type QueryResult = { matches: Match[]; namespace: string; usage: { latencyMs: number; plan: string; embedMs?: number } };
 export type NamespaceStats = { vectorCount: number; indexType: string; building: boolean; tombstones: number };
 export type IndexStats = {
   dimension: number;
@@ -172,8 +189,9 @@ export const api = {
   stats: () => call<Stats>("GET", "/stats"),
   indexes: () => call<{ indexes: IndexInfo[] }>("GET", "/indexes"),
   index: (name: string) => call<IndexInfo>("GET", `/indexes/${seg(name)}`),
-  createIndex: (body: { name: string; dimension: number; metric: Metric; index_type: IndexType; hnsw: IndexInfo["hnsw"] }) =>
+  createIndex: (body: { name: string; dimension: number; metric: Metric; index_type: IndexType; hnsw: IndexInfo["hnsw"]; embed?: { provider: string; model: string } }) =>
     call<IndexInfo>("POST", "/indexes", body),
+  embeddingModels: () => call<EmbeddingCatalog>("GET", "/embeddings/models"),
   configure: (name: string, efSearch: number) =>
     call<IndexInfo>("PATCH", `/indexes/${seg(name)}`, { hnsw: { ef_search: efSearch } }),
   deleteIndex: (name: string) => call<object>("DELETE", `/indexes/${seg(name)}`),

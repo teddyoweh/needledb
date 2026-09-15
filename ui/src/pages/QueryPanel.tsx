@@ -2,9 +2,10 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { api, type IndexInfo, type QueryResult } from "../api";
 import { IconBolt, IconClock, IconSearch, IconSparkles, IconTarget } from "../icons";
 import { fmtMs, go, parseObject, parseVector, randomUnitVector, titleOf } from "../lib";
+import { ModelBadge } from "../brands";
 import { Badge, Button, Card, Choice, CopyButton, Empty, ErrorNote, Field, IconButton, Kbd, MetadataChips, NamespaceSelect } from "../ui";
 
-type Mode = "id" | "vector";
+type Mode = "text" | "id" | "vector";
 
 const PLAN_HELP: Record<string, string> = {
   exact: "Exact scan of every vector",
@@ -21,7 +22,8 @@ export default function QueryPanel({ info, namespaces, params, active }: {
   params: URLSearchParams;
   active: boolean;
 }) {
-  const [mode, setMode] = useState<Mode>("id");
+  const [mode, setMode] = useState<Mode>(info.embed ? "text" : "id");
+  const [queryText, setQueryText] = useState("");
   const [vectorText, setVectorText] = useState("");
   const [recordId, setRecordId] = useState("");
   const [namespace, setNamespace] = useState("");
@@ -61,6 +63,9 @@ export default function QueryPanel({ info, namespaces, params, active }: {
       const id = (byId?.id ?? recordId).trim();
       if (!id) return setError("Enter the id of a stored record — its neighbours are the results.");
       body.id = id;
+    } else if (mode === "text") {
+      if (!queryText.trim()) return setError("Describe what you're looking for.");
+      body.text = queryText.trim();
     } else {
       if (!vector.ok) return setError(vector.message);
       body.vector = vector.value;
@@ -117,11 +122,20 @@ export default function QueryPanel({ info, namespaces, params, active }: {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void run();
         }}>
           <Choice label="Search by" value={mode} onChange={setMode} options={[
-            { value: "id", label: "Stored record" },
-            { value: "vector", label: "Vector" },
+            ...(info.embed ? [{ value: "text" as const, label: "Text" }] : []),
+            { value: "id" as const, label: "Stored record" },
+            { value: "vector" as const, label: "Vector" },
           ]} />
 
-          {mode === "id" ? (
+          {mode === "text" && info.embed ? (
+            <Field label="Search by meaning" htmlFor="q-text" hint={<span className="embedded-with">Embedded with <ModelBadge embed={info.embed} size={14} /></span>}>
+              <div className="search-hero">
+                <IconSearch size={18} />
+                <input id="q-text" className="text-search" value={queryText} autoComplete="off" autoFocus
+                  placeholder="waterproof boots for rainy hikes" onChange={(e) => setQueryText(e.target.value)} />
+              </div>
+            </Field>
+          ) : mode === "id" ? (
             <Field label="Record id" htmlFor="q-id" hint="Returns the records closest to this one.">
               <input id="q-id" value={recordId} placeholder="doc-42" autoComplete="off" onChange={(e) => setRecordId(e.target.value)} />
             </Field>
@@ -174,14 +188,17 @@ export default function QueryPanel({ info, namespaces, params, active }: {
         <Card icon={<IconTarget size={16} />} title={result ? `${result.matches.length} ${result.matches.length === 1 ? "result" : "results"}` : "Results"}
           actions={result && (
             <div className="meta-pills">
+              {result.usage.embedMs != null && <span className="meta-pill" title="Time to embed the query"><IconSparkles size={14} />{fmtMs(result.usage.embedMs)}</span>}
               <span className="meta-pill" title="Measured on the server"><IconBolt size={14} />{fmtMs(result.usage.latencyMs)}</span>
               {roundTrip != null && <span className="meta-pill" title="Including the network"><IconClock size={14} />{fmtMs(roundTrip)}</span>}
               <span title={PLAN_HELP[result.usage.plan]}><Badge tone="accent">{result.usage.plan}</Badge></span>
             </div>
           )} flush>
           {!result ? (
-            <Empty icon={<IconTarget size={24} />} title="Find nearest neighbours">
-              Search by a stored record or a vector. Results show similarity, metadata, and how the query was planned.
+            <Empty icon={<IconTarget size={24} />} title={info.embed ? "Search by meaning" : "Find nearest neighbours"}>
+              {info.embed
+                ? "Type a question or a description. Records with similar meaning come back first, even when they share no words."
+                : "Search by a stored record or a vector. Results show similarity, metadata, and how the query was planned."}
             </Empty>
           ) : result.matches.length === 0 ? (
             <Empty icon={<IconTarget size={24} />} title="No matches">{PLAN_HELP[result.usage.plan] ?? "Try another namespace or a looser filter."}</Empty>
@@ -189,6 +206,8 @@ export default function QueryPanel({ info, namespaces, params, active }: {
             <ol className="results">
               {result.matches.map((m, i) => {
                 const title = titleOf(m.metadata);
+                const source = info.embed ? m.metadata?.[info.embed.field] : undefined;
+                const snippet = typeof source === "string" && title?.field !== info.embed?.field ? source : undefined;
                 return (
                   <li key={m.id} className="result" style={{ animationDelay: `${Math.min(i, 14) * 18}ms` }}>
                     <span className="result-rank">{i + 1}</span>
@@ -196,8 +215,9 @@ export default function QueryPanel({ info, namespaces, params, active }: {
                       <div className="result-title">{title ? title.text : <span className="mono">{m.id}</span>}</div>
                       <div className="result-sub">
                         {title && <span className="mono result-id">{m.id}</span>}
-                        {includeMetadata && <MetadataChips metadata={m.metadata} omit={title ? [title.field] : []} limit={2} />}
+                        {includeMetadata && <MetadataChips metadata={m.metadata} omit={[...(title ? [title.field] : []), ...(info.embed ? [info.embed.field] : [])]} limit={2} />}
                       </div>
+                      {snippet && <div className="result-snippet">{snippet}</div>}
                     </div>
                     <div className="result-score">
                       <span>{m.score == null ? "—" : m.score.toFixed(4)}</span>

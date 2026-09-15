@@ -1,3 +1,4 @@
+import { BrandLogo, PROVIDER_VENDOR } from "../brands";
 import { CodeBlock, CodeTabs } from "../code";
 import {
   IconFilter,
@@ -6,6 +7,7 @@ import {
   IconSearch,
   IconServer,
   IconShield,
+  IconSparkles,
   IconTarget,
   IconUpload,
 } from "../icons";
@@ -15,6 +17,35 @@ import type { DocPage } from "./types";
 const g = (slug: string) => `#/docs/guides/${slug}`;
 const api = (slug: string) => `#/docs/api/${slug}`;
 const sdk = (slug: string) => `#/docs/sdk/${slug}`;
+
+const EMBED_MODELS: [string, string, string, string][] = [
+  ["openai", "text-embedding-3-small", "1,536", "512, 1,024"],
+  ["openai", "text-embedding-3-large", "3,072", "256, 1,024, 1,536"],
+  ["openai", "text-embedding-ada-002", "1,536", ""],
+  ["cohere", "embed-v4.0", "1,536", "256, 512, 1,024"],
+  ["cohere", "embed-english-v3.0", "1,024", ""],
+  ["cohere", "embed-multilingual-v3.0", "1,024", ""],
+  ["cohere", "embed-english-light-v3.0", "384", ""],
+  ["voyage", "voyage-3.5 · voyage-3.5-lite · voyage-3-large · voyage-code-3", "1,024", "256, 512, 2,048"],
+  ["voyage", "voyage-finance-2 · voyage-law-2", "1,024", ""],
+  ["google", "gemini-embedding-001", "3,072", "768, 1,536"],
+  ["mistral", "mistral-embed", "1,024", ""],
+  ["mistral", "codestral-embed", "1,536", ""],
+  ["jina", "jina-embeddings-v3", "1,024", "32 to 768"],
+];
+
+const LOCAL_MODELS: [string, string, string, string][] = [
+  ["baai", "BAAI/bge-small-en-v1.5", "384", "67 MB"],
+  ["huggingface", "sentence-transformers/all-MiniLM-L6-v2", "384", "90 MB"],
+  ["baai", "BAAI/bge-base-en-v1.5", "768", "210 MB"],
+  ["huggingface", "nomic-ai/nomic-embed-text-v1.5", "768", "520 MB"],
+  ["snowflake", "snowflake/snowflake-arctic-embed-m", "768", "430 MB"],
+  ["huggingface", "mixedbread-ai/mxbai-embed-large-v1", "1,024", "640 MB"],
+  ["baai", "BAAI/bge-large-en-v1.5", "1,024", "1.2 GB"],
+  ["microsoft", "intfloat/multilingual-e5-large", "1,024", "2.2 GB"],
+];
+
+const PROVIDER_NAMES: Record<string, string> = { openai: "OpenAI", cohere: "Cohere", voyage: "Voyage AI", google: "Google Gemini", mistral: "Mistral AI", jina: "Jina AI" };
 
 export const GUIDES: DocPage[] = [
   // ---- get started ------------------------------------------------------------------
@@ -50,6 +81,7 @@ res = index.query(
         <H2 id="why">What you get</H2>
         <ul>
           <li><b>A Pinecone-shaped API.</b> Upsert, query, fetch, update, delete, list, stats and namespaces, with the same JSON and filter grammar. The official <C>pinecone</C> Python client works against a NeedleDB index host unchanged.</li>
+          <li><b>Search by meaning.</b> Give an index an embedding model — OpenAI, Cohere, Voyage, Gemini, Mistral, Jina, or a free local model — then upsert plain text and search in natural language. <a href={g("text-search")}>Text search</a>.</li>
           <li><b>Any dimension</b> from 1 to 65,536, with cosine, dot product or euclidean distance.</li>
           <li><b>FAISS underneath.</b> Exact search for small collections, HNSW for large ones, and an <C>auto</C> mode that switches in the background at 20,000 vectors without blocking reads.</li>
           <li><b>Filters that keep their recall.</b> Narrow filters are answered with an exact scan of the matches; wide ones with filtered HNSW and a widened beam.</li>
@@ -140,12 +172,17 @@ print(res.usage.plan)   # "filtered-exact": a narrow filter, answered exactly`} 
           </Step>
         </Steps>
 
+        <Callout kind="note" title="Rather send text than vectors?">
+          Create the index with an embedding model and NeedleDB embeds text for you: <C>{`db.create_index("docs", embed={"provider": "local", "model": "BAAI/bge-small-en-v1.5"})`}</C>. See <a href={g("text-search")}>text search</a>.
+        </Callout>
+
         <Callout kind="tip" title="Experimenting on your own machine?">
           <C>needledb serve --no-auth</C> skips keys entirely. The server refuses that on any address other than localhost.
         </Callout>
 
         <H2 id="next">Next steps</H2>
         <CardGroup>
+          <DocCard title="Search by meaning" icon={<IconSparkles size={18} />} href={g("text-search")}>Built-in embedding models: send text, not vectors.</DocCard>
           <DocCard title="Upsert at scale" icon={<IconUpload size={18} />} href={g("upsert")}>Batching, NumPy arrays and namespaces.</DocCard>
           <DocCard title="Metadata filtering" icon={<IconFilter size={18} />} href={g("filtering")}>Every operator, and how filtered search keeps its recall.</DocCard>
           <DocCard title="Create scoped keys" icon={<IconKey size={18} />} href={g("authentication")}>Give each app only the access it needs.</DocCard>
@@ -191,6 +228,8 @@ docker compose -f deploy/docker-compose.yml up -d`} />
           [<C>NEEDLEDB_SESSION_SECRET</C>, "generated", "Pin the session signing secret."],
           [<C>NEEDLEDB_MAX_BODY_MB</C>, <C>64</C>, "Largest request body accepted."],
           [<C>NEEDLEDB_SNAPSHOT_EVERY</C>, <C>50000</C>, "Writes between automatic snapshots."],
+          [<><C>OPENAI_API_KEY</C> and others</>, "—", <>Keys for hosted embedding models. See <a href={g("text-search")}>text search</a>.</>],
+          [<C>NEEDLEDB_MODEL_CACHE</C>, "fastembed's default", "Where local embedding models are downloaded."],
         ]} />
 
         <H2 id="data-directory">The data directory</H2>
@@ -455,6 +494,94 @@ for match in res.matches:
           [<C>filtered-hnsw</C>, "The filter was wide, so the graph was searched with the filter applied and a widened beam."],
           [<C>empty</C>, "The namespace doesn't exist yet."],
         ]} />
+      </>
+    ),
+  },
+  {
+    slug: "text-search",
+    title: "Text search",
+    group: "Working with data",
+    description: "Give an index an embedding model, then upsert plain text and search in natural language.",
+    keywords: "embedding model semantic natural language openai cohere voyage gemini mistral jina bge minilm nomic e5 fastembed inference",
+    render: () => (
+      <>
+        <H2 id="how">How it works</H2>
+        <p>Create an index with <C>embed</C>. A record that arrives with <C>text</C> instead of <C>values</C> is sent to the model, stored as a vector, and keeps its text in metadata. A query with <C>text</C> is embedded the same way — using the model's query mode where it has one — and searched.</p>
+        <Steps>
+          <Step title="Create the index">
+            <p>The dimension comes from the model.</p>
+            <CodeTabs tabs={[
+              { label: "Python", lang: "python", code: `db.create_index("products", embed={"provider": "openai", "model": "text-embedding-3-small"})` },
+              { label: "cURL", lang: "bash", code: `curl ${ORIGIN}/indexes \\
+  -H "Api-Key: $NEEDLEDB_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"name": "products", "embed": {"provider": "openai", "model": "text-embedding-3-small"}}'` },
+            ]} />
+          </Step>
+          <Step title="Upsert text">
+            <CodeBlock lang="python" title="Python" code={`index = db.Index("products")
+index.upsert([
+    {"id": "sku-1", "text": "Waterproof hiking boots for muddy trails", "metadata": {"price": 129}},
+    {"id": "sku-2", "text": "Cast iron skillet for searing steak", "category": "kitchen"},
+])`} />
+            <p>Top-level fields other than <C>id</C>, <C>text</C> and <C>metadata</C> become metadata too, as in the second record.</p>
+          </Step>
+          <Step title="Search by meaning">
+            <CodeTabs tabs={[
+              { label: "Python", lang: "python", code: `res = index.search("shoes for rainy hikes", top_k=5, filter={"price": {"$lt": 150}})
+for match in res.matches:
+    print(match.score, match.metadata["text"])` },
+              { label: "cURL", lang: "bash", code: `curl ${ORIGIN}/indexes/products/query \\
+  -H "Api-Key: $NEEDLEDB_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"text": "shoes for rainy hikes", "topK": 5, "includeMetadata": true}'` },
+            ]} />
+          </Step>
+        </Steps>
+
+        <H2 id="models">Hosted models</H2>
+        <DocTable head={["Provider", "embed.model", "Dimension", "Also"]} rows={EMBED_MODELS.map(([provider, model, dim, also]) => [
+          <span className="doc-provider"><BrandLogo vendor={PROVIDER_VENDOR[provider]} size={16} />{PROVIDER_NAMES[provider]}</span>,
+          <C>{model}</C>, dim, also || "—",
+        ])} />
+        <p>Use <C>provider</C> values <C>openai</C>, <C>cohere</C>, <C>voyage</C>, <C>google</C>, <C>mistral</C> or <C>jina</C>.</p>
+
+        <H2 id="local">Local models</H2>
+        <p>Local models run on the server's CPU through fastembed, so text never leaves your machine. Install the extra, then use <C>{`"provider": "local"`}</C>.</p>
+        <CodeBlock lang="bash" title="Terminal" code={`pip install "needledb[local]"`} />
+        <DocTable head={["Maker", "embed.model", "Dimension", "Download"]} rows={LOCAL_MODELS.map(([vendor, model, dim, size]) => [
+          <span className="doc-provider"><BrandLogo vendor={vendor} size={16} />{model.split("/")[0]}</span>,
+          <C>{model}</C>, dim, size,
+        ])} />
+        <p>Each model downloads the first time it's used. Set <C>NEEDLEDB_MODEL_CACHE</C> to choose where.</p>
+
+        <H2 id="keys">Provider keys</H2>
+        <p>Hosted providers read their key from the server's environment. Keys are never stored with an index or returned by the API; <a href={api("list-embedding-models")}>/embeddings/models</a> only reports whether each one is set.</p>
+        <DocTable head={["Provider", "Environment variable"]} rows={[
+          ["OpenAI", <><C>OPENAI_API_KEY</C>, and <C>OPENAI_BASE_URL</C> for a compatible endpoint</>],
+          ["Cohere", <><C>COHERE_API_KEY</C> or <C>CO_API_KEY</C></>],
+          ["Voyage AI", <C>VOYAGE_API_KEY</C>],
+          ["Google Gemini", <><C>GEMINI_API_KEY</C> or <C>GOOGLE_API_KEY</C></>],
+          ["Mistral AI", <C>MISTRAL_API_KEY</C>],
+          ["Jina AI", <C>JINA_API_KEY</C>],
+        ]} />
+        <Callout kind="note" title="Hosted models see your text">
+          The text you upsert and search with is sent to the provider. Choose a local model to keep it on your server.
+        </Callout>
+
+        <H2 id="output-size">Smaller vectors</H2>
+        <p>Several models can produce shorter vectors, which use less memory and search faster. Pass a supported <C>dimension</C> with <C>embed</C>:</p>
+        <CodeBlock lang="python" title="Python" code={`db.create_index("docs", dimension=512, embed={"provider": "openai", "model": "text-embedding-3-small"})`} />
+
+        <H2 id="own-vectors">Mixing in your own vectors</H2>
+        <p>Records that include <C>values</C> are stored as they are, so you can backfill with vectors you've already computed — as long as they came from the same model and size.</p>
+
+        <H2 id="failures">When the provider fails</H2>
+        <DocTable head={["Situation", "Response"]} rows={[
+          ["The key isn't set, or the provider rejects it", <><C>400 FAILED_PRECONDITION</C></>],
+          ["The provider refuses the input", <><C>400 INVALID_ARGUMENT</C></>],
+          ["Still rate limited after retries", <><C>429 RESOURCE_EXHAUSTED</C></>],
+          ["The provider is down or unreachable", <><C>502 UNAVAILABLE</C></>],
+        ]} />
+        <p>NeedleDB retries rate limits and provider errors twice before giving up. An upsert that fails writes nothing.</p>
       </>
     ),
   },

@@ -50,7 +50,8 @@ class BaseIndex:
     def upsert(self, vectors: Iterable, namespace: str | None = None,
                batch_size: int | None = None) -> Obj:
         """Insert or overwrite vectors: dicts `{id, values, metadata?}` or tuples
-        `(id, values[, metadata])`. Large inputs are sent in batches."""
+        `(id, values[, metadata])`. On an index with an embedding model, a dict can carry
+        `text` instead of `values`. Large inputs are sent in batches."""
         vectors = vectors if isinstance(vectors, list) else list(vectors)
         size = batch_size or self.default_batch_size
         total = 0
@@ -74,13 +75,21 @@ class BaseIndex:
             records.append(rec)
         return self.upsert(records, namespace, batch_size)
 
-    def query(self, vector=None, *, id: str | None = None, top_k: int = 10,
+    def query(self, vector=None, *, id: str | None = None, text: str | None = None, top_k: int = 10,
               namespace: str | None = None, filter: dict | None = None,
               include_values: bool = False, include_metadata: bool = False,
               ef_search: int | None = None) -> Obj:
-        return wrap(self._query(vector=vector, id=id, top_k=top_k, namespace=namespace,
+        """Nearest neighbours of a vector, a stored record (`id`), or `text` on an index
+        with an embedding model."""
+        return wrap(self._query(vector=vector, id=id, text=text, top_k=top_k, namespace=namespace,
                                 filter=filter, include_values=include_values,
                                 include_metadata=include_metadata, ef_search=ef_search))
+
+    def search(self, text: str, top_k: int = 10, *, namespace: str | None = None,
+               filter: dict | None = None, include_metadata: bool = True) -> Obj:
+        """Search by meaning: `index.search("waterproof hiking boots")`."""
+        return self.query(text=text, top_k=top_k, namespace=namespace, filter=filter,
+                          include_metadata=include_metadata)
 
     def fetch(self, ids: list[str], namespace: str | None = None) -> Obj:
         return wrap(self._fetch(list(ids), namespace))
