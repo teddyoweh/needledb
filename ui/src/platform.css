@@ -670,3 +670,16 @@ select.cmp-topk { width: auto; height: 32px; margin-left: auto; padding-top: 0; 
   .pg-result { grid-template-columns: 30px minmax(0, 1fr); }
   .pg-score { grid-column: 2; align-items: flex-start; }
 }
+
+/* ---- connect a model -------------------------------------------------------------------------------- */
+
+.connect { display: flex; flex-direction: column; gap: 14px; }
+.connect-warning { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #fdf7e4; color: #6b4410; border-radius: 12px; font-size: 13.5px; line-height: 1.5; }
+.connect-warning svg { flex: none; margin-top: 2px; color: #c98a0c; }
+.connect-list { max-height: 340px; }
+.connect .field select { max-width: 320px; }
+.connect-current { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 4px 2px; }
+.connect-current .model-badge { font-size: 15px; font-weight: 550; }
+.pg-input.disabled { opacity: 0.6; }
+.pg-input input:disabled { cursor: not-allowed; }
+.pg-snippet { display: -webkit-box; margin-top: 3px; overflow: hidden; color: var(--ink-2); font-size: 13.5px; line-height: 1.5; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }

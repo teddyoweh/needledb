@@ -204,6 +204,8 @@ export const api = {
   embeddingModels: () => call<EmbeddingCatalog>("GET", "/embeddings/models"),
   compareModels: (body: { query: string; documents: string[]; models: { provider: string; model: string }[]; topK: number }) =>
     call<{ results: CompareResult[] }>("POST", "/playground/compare", body),
+  setEmbedding: (name: string, embed: { provider: string; model: string; field: string } | null) =>
+    call<IndexInfo>("PATCH", `/indexes/${seg(name)}`, { embed }),
   configure: (name: string, efSearch: number) =>
     call<IndexInfo>("PATCH", `/indexes/${seg(name)}`, { hnsw: { ef_search: efSearch } }),
   deleteIndex: (name: string) => call<object>("DELETE", `/indexes/${seg(name)}`),

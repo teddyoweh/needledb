@@ -24,6 +24,7 @@ from .config import (
     MAX_METADATA_BYTES,
     MAX_TOP_K,
     MAX_UPSERT_BATCH,
+    EmbedConfig,
     IndexConfig,
     InvalidArgument,
     NotFound,
@@ -32,6 +33,7 @@ from .filters import validate_metadata
 from .storage import Storage
 
 SNAPSHOT_EVERY = int(os.environ.get("NEEDLEDB_SNAPSHOT_EVERY", "50000"))
+_KEEP = object()
 
 
 class Index:
@@ -65,11 +67,18 @@ class Index:
         tmp.write_text(json.dumps(self.cfg.to_dict(), indent=2))
         tmp.replace(self.dir / "index.json")
 
-    def configure(self, ef_search: int | None = None) -> None:
+    def configure(self, ef_search: int | None = None, embed=_KEEP) -> None:
+        """Change the search width, and/or connect (a dict), change or disconnect (None) the
+        embedding model. A model can only be connected if it makes vectors of this dimension."""
+        if embed is not _KEEP and embed is not None:
+            embed = EmbedConfig.from_dict(embed)
+            embed.validate(self.cfg.dimension)
         if ef_search is not None:
             if not isinstance(ef_search, int) or isinstance(ef_search, bool) or not 1 <= ef_search <= 10_000:
                 raise InvalidArgument("hnsw.ef_search must be an integer from 1 to 10000")
             self.cfg.hnsw.ef_search = ef_search
+        if embed is not _KEEP:
+            self.cfg.embed = embed
         self.save_config()
 
     def close(self, snapshot: bool = True) -> None:

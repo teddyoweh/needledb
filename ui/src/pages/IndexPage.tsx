@@ -27,6 +27,7 @@ import { useSession } from "../session";
 import { Badge, Button, Card, Empty, ErrorNote, Field, IndexAvatar, PageHeader, Skeleton, Tabs, useToast } from "../ui";
 import { ModelBadge } from "../brands";
 import BrowsePanel from "./BrowsePanel";
+import { EmbeddingSettings } from "./ConnectModel";
 import QueryPanel from "./QueryPanel";
 import UpsertPanel from "./UpsertPanel";
 import VectorMap from "./VectorMap";
@@ -163,9 +164,7 @@ function IndexHero({ index, route }: { index: IndexInfo; route: string }) {
       </div>
       <div className="page-actions">
         <a className="btn btn-secondary btn-md" href="#/docs/api/query"><IconBook size={16} />Docs</a>
-        {index.embed && (
-          <Button icon={<IconSparkles size={16} />} onClick={() => go(`/playground?index=${encodeURIComponent(index.name)}`)}>Playground</Button>
-        )}
+        <Button icon={<IconSparkles size={16} />} onClick={() => go(`/playground?index=${encodeURIComponent(index.name)}`)}>Playground</Button>
         <Button icon={<IconTarget size={16} />} onClick={() => go(`${route}/explore`)}>Explore</Button>
         <Button variant="primary" icon={<IconSearch size={16} />} onClick={() => go(`${route}/query`)}>Query</Button>
       </div>
@@ -541,6 +540,7 @@ function SettingsPanel({ info, onSaved, onDeleted }: { info: IndexInfo; onSaved:
 
   return (
     <>
+      <EmbeddingSettings info={info} onSaved={onSaved} />
       <Card icon={<IconSliders size={16} />} title="Search width"
         subtitle="How many graph candidates each query explores. Wider finds more of the true nearest neighbours and takes longer."
         actions={<a className="link small" href="#/docs/guides/index-structures">Tuning guide</a>}>

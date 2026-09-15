@@ -537,6 +537,14 @@ for match in res.matches:
           </Step>
         </Steps>
 
+        <H2 id="existing">Indexes that already have vectors</H2>
+        <p>If you loaded vectors yourself, connect the model that made them — then the index can be searched by text too. Only models that produce vectors of the index's size are accepted, and <C>field</C> names the metadata that holds each record's text.</p>
+        <CodeBlock lang="python" title="Python" code={`db.configure_index("articles", embed={"provider": "openai", "model": "text-embedding-3-large", "field": "summary"})
+db.Index("articles").search("renewable energy in small towns")`} />
+        <Callout kind="warning" title="Use the same model">
+          Every model places text differently. Searching with a model other than the one that made the vectors returns results that look random.
+        </Callout>
+
         <H2 id="playground">Try it in the playground</H2>
         <p>The web app's <b>Playground</b> searches any text index as you type, with one-click filters built from your metadata. Its <b>Compare models</b> tab ranks a list of your own sentences with up to three models side by side — no index needed — so you can pick a model before embedding a whole collection.</p>
 

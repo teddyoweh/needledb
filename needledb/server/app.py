@@ -527,12 +527,16 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
         index = index_for(request, name, "admin")
         body = _parse(await request.body())
         hnsw = body.get("hnsw") or {}
-        if not isinstance(hnsw, dict) or set(body) - {"hnsw", "ef_search", "efSearch"} \
+        if not isinstance(hnsw, dict) or set(body) - {"hnsw", "ef_search", "efSearch", "embed"} \
                 or set(hnsw) - {"ef_search", "efSearch"}:
-            raise InvalidArgument("only hnsw.ef_search can be changed on an existing index")
+            raise InvalidArgument("only hnsw.ef_search and embed can be changed on an existing index")
         ef = _opt(hnsw, "ef_search", "efSearch", default=_opt(body, "ef_search", "efSearch"))
-        await run(index.configure, ef)
-        record(request, "index.configured", name, {"ef_search": ef})
+        changes = {"embed": body["embed"]} if "embed" in body else {}
+        await run(lambda: index.configure(ef, **changes))
+        detail = {"ef_search": ef} if ef is not None else {}
+        if "embed" in body:
+            detail["embed"] = f"{index.cfg.embed.provider}/{index.cfg.embed.model}" if index.cfg.embed else None
+        record(request, "index.configured", name, detail)
         return _json(describe(index, request))
 
     @app.delete("/indexes/{name}")

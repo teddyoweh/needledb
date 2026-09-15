@@ -5,6 +5,8 @@ from pathlib import Path
 
 from .index import BaseIndex, Obj, wrap
 
+_KEEP = object()
+
 
 class NeedleDBLocal:
     """
@@ -38,9 +40,9 @@ class NeedleDBLocal:
     def has_index(self, name: str) -> bool:
         return any(i.cfg.name == name for i in self._registry.list())
 
-    def configure_index(self, name: str, ef_search: int) -> Obj:
+    def configure_index(self, name: str, ef_search: int | None = None, *, embed=_KEEP) -> Obj:
         index = self._registry.get(name)
-        index.configure(ef_search)
+        index.configure(ef_search, **({} if embed is _KEEP else {"embed": embed}))
         return wrap(index.summary())
 
     def delete_index(self, name: str) -> None:

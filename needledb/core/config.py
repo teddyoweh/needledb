@@ -47,6 +47,15 @@ class EmbedConfig:
     model: str
     field: str = "text"   # metadata field that keeps each record's source text
 
+    @classmethod
+    def from_dict(cls, data) -> "EmbedConfig":
+        if not isinstance(data, dict):
+            raise InvalidArgument("embed must be an object with provider and model")
+        unknown = set(data) - {"provider", "model", "field"}
+        if unknown:
+            raise InvalidArgument(f"unknown embed fields: {', '.join(sorted(unknown))}")
+        return cls(provider=data.get("provider"), model=data.get("model"), field=data.get("field") or "text")
+
     def validate(self, dimension: int) -> None:
         from ..embed import get_model  # the catalog, without importing it for every index
 
@@ -104,15 +113,7 @@ class IndexConfig:
         unknown = set(hnsw) - known
         if unknown:
             raise InvalidArgument(f"unknown hnsw fields: {', '.join(sorted(unknown))}")
-        embed = data.get("embed")
-        if embed is not None:
-            if not isinstance(embed, dict):
-                raise InvalidArgument("embed must be an object with provider and model")
-            unknown = set(embed) - {"provider", "model", "field"}
-            if unknown:
-                raise InvalidArgument(f"unknown embed fields: {', '.join(sorted(unknown))}")
-            embed = EmbedConfig(provider=embed.get("provider"), model=embed.get("model"),
-                                field=embed.get("field") or "text")
+        embed = EmbedConfig.from_dict(data["embed"]) if data.get("embed") is not None else None
         dimension = data.get("dimension")
         if dimension is None and embed is not None:
             from ..embed import find_model

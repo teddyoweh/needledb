@@ -12,6 +12,7 @@ from ..errors import BY_CODE, NeedleError
 from .index import BaseIndex, Obj, wrap
 
 _TRANSIENT = {502, 503, 504}
+_KEEP = object()
 
 
 class NeedleDB:
@@ -81,8 +82,17 @@ class NeedleDB:
     def has_index(self, name: str) -> bool:
         return any(i["name"] == name for i in self.request("GET", "/indexes")["indexes"])
 
-    def configure_index(self, name: str, ef_search: int) -> Obj:
-        return wrap(self.request("PATCH", f"/indexes/{name}", {"hnsw": {"ef_search": ef_search}}))
+    def configure_index(self, name: str, ef_search: int | None = None, *, embed=_KEEP) -> Obj:
+        """Change the search width, or connect an embedding model to an existing index with
+        `embed={"provider": ..., "model": ..., "field": ...}` (`embed=None` disconnects it)."""
+        body: dict = {}
+        if ef_search is not None:
+            body["hnsw"] = {"ef_search": ef_search}
+        if embed is not _KEEP:
+            body["embed"] = embed
+        if not body:
+            raise ValueError("pass ef_search, embed, or both")
+        return wrap(self.request("PATCH", f"/indexes/{name}", body))
 
     def delete_index(self, name: str) -> None:
         self.request("DELETE", f"/indexes/{name}")

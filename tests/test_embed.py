@@ -227,3 +227,24 @@ def test_text_queries_are_cached(registry, fake_openai):
     calls = len(fake_openai)
     assert index.query(text="camping tent", top_k=1)["matches"][0]["id"] == "tent"
     assert len(fake_openai) == calls
+
+
+def test_connect_a_model_to_an_existing_index(client, fake_openai):
+    assert client.post("/indexes", json={"name": "legacy", "dimension": 1536}).status_code == 201
+    vectors = [
+        {"id": "boots", "values": bag_of_words(DOCS[0][1], 1536), "metadata": {"title": "Boots", "summary": DOCS[0][1]}},
+        {"id": "skillet", "values": bag_of_words(DOCS[1][1], 1536), "metadata": {"title": "Skillet", "summary": DOCS[1][1]}},
+    ]
+    client.post("/indexes/legacy/vectors/upsert", json={"vectors": vectors})
+    assert client.post("/indexes/legacy/query", json={"text": "boots"}).status_code == 400
+
+    wrong_size = client.patch("/indexes/legacy", json={"embed": {"provider": "local", "model": "BAAI/bge-small-en-v1.5"}})
+    assert wrong_size.status_code == 400 and "384" in wrong_size.json()["error"]["message"]
+
+    connected = client.patch("/indexes/legacy", json={"embed": {**SMALL, "field": "summary"}})
+    assert connected.status_code == 200 and connected.json()["embed"] == {**SMALL, "field": "summary"}
+    found = client.post("/indexes/legacy/query", json={"text": "hiking boots trails", "topK": 1}).json()
+    assert found["matches"][0]["id"] == "boots"
+
+    assert client.patch("/indexes/legacy", json={"hnsw": {"ef_search": 64}}).json()["embed"]["field"] == "summary"
+    assert client.patch("/indexes/legacy", json={"embed": None}).json()["embed"] is None

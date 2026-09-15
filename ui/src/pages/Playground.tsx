@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type CompareResult, type EmbeddingCatalog, type IndexInfo, type QueryResult } from "../api";
 import { BrandLogo, ModelBadge, PROVIDER_VENDOR, useEmbeddingCatalog } from "../brands";
 import { IconBolt, IconClock, IconPlus, IconRows, IconSearch, IconSparkles, IconX } from "../icons";
-import { fmtInt, fmtMs, go, usePoll } from "../lib";
+import { fmtInt, fmtMs, go, titleOf, usePoll } from "../lib";
 import { useSession } from "../session";
 import { Button, Card, Choice, Empty, ErrorNote, IconButton, MetadataChips, NamespaceSelect, PageHeader, Skeleton, Tabs } from "../ui";
+import { ConnectModel } from "./ConnectModel";
 
 type Scalar = string | number | boolean;
 type Facet = { field: string; value: Scalar };
@@ -76,9 +77,12 @@ function facetsOf(matches: QueryResult["matches"], skip: string[]) {
 }
 
 function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loaded: boolean; initial?: string }) {
-  const textIndexes = indexes.filter((i) => i.embed);
+  const catalog = useEmbeddingCatalog();
   const [name, setName] = useState("");
-  const info = textIndexes.find((i) => i.name === name);
+  // A model connected here shows up before the index list refreshes.
+  const [connected, setConnected] = useState<Record<string, IndexInfo>>({});
+  const ordered = [...indexes].map((i) => connected[i.name] ?? i).sort((a, b) => Number(!!b.embed) - Number(!!a.embed));
+  const info = ordered.find((i) => i.name === name);
   const stats = usePoll(() => (name ? api.describeStats(name) : Promise.resolve(undefined)), 30000, [name]);
   const namespaces = Object.keys(stats.data?.namespaces ?? {});
   const [query, setQuery] = useState("");
@@ -92,33 +96,35 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
   const [recent, remember] = useRecent(name || "none");
   const seq = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const embed = info?.embed ?? null;
 
-  // Indexes arrive after the first render; pick the requested one, or the first text index.
+  // Indexes arrive after the first render: take the requested one, else a searchable one.
   useEffect(() => {
-    if (name && textIndexes.some((i) => i.name === name)) return;
-    const next = (initial && textIndexes.find((i) => i.name === initial)) || textIndexes[0];
+    if (name && ordered.some((i) => i.name === name)) return;
+    const next = (initial && ordered.find((i) => i.name === initial)) || ordered[0];
     if (next) setName(next.name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textIndexes.map((i) => i.name).join(","), initial]);
+  }, [ordered.map((i) => i.name).join(","), initial]);
 
   useEffect(() => {
     setResult(undefined);
     setFacet(null);
     setFacets([]);
     setNamespace("");
+    setError(undefined);
   }, [name]);
 
   // Search as you type. Only the newest response is shown.
   useEffect(() => {
     const text = query.trim();
     const id = ++seq.current;
-    if (!info?.embed || !text) {
+    if (!info || !embed || !text) {
       setResult(undefined);
       setBusy(false);
       setError(undefined);
       return;
     }
-    const field = info.embed.field;
+    const titleField = embed.field;
     const timer = window.setTimeout(async () => {
       setBusy(true);
       try {
@@ -129,7 +135,7 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
         if (id !== seq.current) return;
         setResult({ ...res, text });
         setError(undefined);
-        if (!facet) setFacets(facetsOf(res.matches, [field, "sample"]));
+        if (!facet) setFacets(facetsOf(res.matches, [titleField, "title", "sample"]));
       } catch (err) {
         if (id === seq.current) setError((err as Error).message);
       } finally {
@@ -138,7 +144,7 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
     }, 300);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, topK, namespace, facet, info?.name]);
+  }, [query, topK, namespace, facet, info?.name, embed?.provider, embed?.model]);
 
   // Remember searches people settle on, not every keystroke.
   useEffect(() => {
@@ -151,22 +157,22 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
 
   if (!loaded) return <Skeleton height={220} radius={20} />;
 
-  if (!textIndexes.length) {
+  if (!indexes.length) {
     return (
       <Card>
-        <Empty icon={<IconSparkles size={24} />} title="No text indexes yet"
+        <Empty icon={<IconSparkles size={24} />} title="No indexes yet"
           action={<div className="actions-end">
             <Button onClick={() => go("/playground/compare")}>Compare models</Button>
-            <Button variant="primary" icon={<IconPlus size={16} />} onClick={() => go("/indexes?new=1")}>Create a text index</Button>
+            <Button variant="primary" icon={<IconPlus size={16} />} onClick={() => go("/indexes?new=1")}>Create an index</Button>
           </div>}>
-          Create an index with an embedding model, add some text, and search it here in your own words. Or compare models on sentences you paste, with no index at all.
+          Create an index, add some text, and search it here in your own words. Or compare models on sentences you paste, with no index at all.
         </Empty>
       </Card>
     );
   }
-  if (!info?.embed) return <Skeleton height={220} radius={20} />;
+  if (!info) return <Skeleton height={220} radius={20} />;
 
-  const field = info.embed.field;
+  const provider = embed ? catalog?.providers.find((p) => p.id === embed.provider) : undefined;
   const matches = result?.matches ?? [];
   const scores = matches.map((m) => m.score ?? 0);
   const lowerIsBetter = info.metric === "euclidean";
@@ -178,18 +184,18 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
       <div className="pg-search">
         <div className="pg-bar">
           <select className="pg-index" aria-label="Index" value={name} onChange={(e) => setName(e.target.value)}>
-            {textIndexes.map((i) => <option key={i.name} value={i.name}>{i.name}</option>)}
+            {ordered.map((i) => <option key={i.name} value={i.name}>{i.name}{i.embed ? "" : " · no model"}</option>)}
           </select>
-          <div className="pg-input">
+          <div className={`pg-input ${embed ? "" : "disabled"}`}>
             {busy ? <span className="spinner dark" aria-label="Searching" /> : <IconSearch size={20} />}
-            <input ref={inputRef} autoFocus value={query} aria-label="Search"
-              placeholder={`Search ${info.name} in your own words`}
+            <input ref={inputRef} autoFocus value={query} aria-label="Search" disabled={!embed}
+              placeholder={embed ? `Search ${info.name} in your own words` : "Connect a model below to search this index in plain language"}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setQuery("");
                 if (e.key === "Enter" && query.trim()) remember(query.trim());
               }} />
-            {query && (
+            {query && embed && (
               <IconButton label="Clear search" onClick={() => {
                 setQuery("");
                 inputRef.current?.focus();
@@ -198,14 +204,25 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
           </div>
         </div>
         <div className="pg-controls">
-          <span className="embedded-with">Searching {fmtInt(info.vectorCount)} records by meaning with <ModelBadge embed={info.embed} size={14} /></span>
-          <div className="pg-control-group">
-            {namespaces.length > 1 && <NamespaceSelect id="pg-ns" value={namespace} namespaces={namespaces} onChange={setNamespace} />}
-            <select aria-label="Number of results" value={topK} onChange={(e) => setTopK(e.target.value)}>
-              {["5", "10", "20", "50"].map((n) => <option key={n} value={n}>{n} results</option>)}
-            </select>
-          </div>
+          {embed
+            ? <span className="embedded-with">Searching {fmtInt(info.vectorCount)} records by meaning with <ModelBadge embed={embed} size={14} /></span>
+            : <span>{fmtInt(info.vectorCount)} records · {fmtInt(info.dimension)}-dimensional vectors from a model NeedleDB doesn't know yet</span>}
+          {embed && (
+            <div className="pg-control-group">
+              {namespaces.length > 1 && <NamespaceSelect id="pg-ns" value={namespace} namespaces={namespaces} onChange={setNamespace} />}
+              <select aria-label="Number of results" value={topK} onChange={(e) => setTopK(e.target.value)}>
+                {["5", "10", "20", "50"].map((n) => <option key={n} value={n}>{n} results</option>)}
+              </select>
+            </div>
+          )}
         </div>
+        {embed && provider && !provider.available && (
+          <div className="note note-warn">
+            {provider.local
+              ? <>{info.name} searches with a local model, which needs <code>pip install "needledb[local]"</code> on the server.</>
+              : <>{info.name} searches with {provider.name}, which needs <code>{provider.env[0]}</code> in the server's environment. Set it and restart the server to search.</>}
+          </div>
+        )}
         {facets.length > 0 && (
           <div className="pg-facets">
             {facets.map((f) => (
@@ -228,7 +245,12 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
 
       <ErrorNote error={error} />
 
-      {!query.trim() ? (
+      {!embed ? (
+        <Card icon={<IconSparkles size={16} />} title={`Connect the model that made ${info.name}`}
+          subtitle="Your searches are turned into vectors with that model, then matched against the vectors already in the index.">
+          <ConnectModel info={info} onConnected={(next) => setConnected((c) => ({ ...c, [next.name]: next }))} />
+        </Card>
+      ) : !query.trim() ? (
         <div className="pg-idle">
           <span className="pg-idle-icon"><IconSparkles size={22} /></span>
           <b>Ask it anything</b>
@@ -243,7 +265,7 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
           )}
         </div>
       ) : !result ? (
-        <div className="stack tight">{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={76} radius={14} />)}</div>
+        error ? null : <div className="stack tight">{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={76} radius={14} />)}</div>
       ) : (
         <Card flush icon={<IconSparkles size={16} />}
           title={`${matches.length} ${matches.length === 1 ? "result" : "results"}`}
@@ -263,17 +285,22 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
           ) : (
             <ol className="pg-results">
               {matches.map((m, i) => {
-                const text = m.metadata?.[field];
+                const title = titleOf(m.metadata);
+                const body = m.metadata?.[embed.field];
+                const separateTitle = !!title && title.field !== embed.field;
+                const heading = separateTitle ? title.text : typeof body === "string" ? body : title?.text ?? m.id;
+                const snippet = separateTitle && typeof body === "string" ? body : undefined;
                 const score = m.score ?? 0;
                 const width = best === worst ? 100 : 12 + 88 * ((score - worst) / (best - worst));
                 return (
                   <li key={m.id} className="pg-result" style={{ animationDelay: `${Math.min(i, 12) * 22}ms` }}>
                     <span className={`pg-rank ${i === 0 ? "first" : ""}`}>{i + 1}</span>
                     <div className="pg-body">
-                      <p className="pg-text">{typeof text === "string" ? text : m.id}</p>
+                      <p className="pg-text">{heading}</p>
+                      {snippet && <p className="pg-snippet">{snippet}</p>}
                       <div className="pg-meta">
                         <span className="pg-id">{m.id}</span>
-                        <MetadataChips metadata={m.metadata} omit={[field]} limit={4} />
+                        <MetadataChips metadata={m.metadata} omit={[embed.field, ...(title ? [title.field] : [])]} limit={4} />
                       </div>
                     </div>
                     <div className="pg-score" title={lowerIsBetter ? "Distance: lower is closer" : "Similarity: higher is closer"}>

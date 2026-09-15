@@ -162,14 +162,23 @@ print(info.host, info.status.state)`,
   },
   {
     slug: "configure-index", title: "Configure an index", group: "Indexes", method: "PATCH", path: "/indexes/{name}", access: "admin",
-    summary: "Change an index's default search width.",
-    about: <p>Only <C>ef_search</C> can change after creation. The new value applies to the next query.</p>,
+    summary: "Change an index's search width, or connect an embedding model to it.",
+    about: <p>Only <C>ef_search</C> and <C>embed</C> can change after creation. Connect the model that produced the vectors already in the index so text searches line up with them; send <C>{'"embed": null'}</C> to disconnect.</p>,
     pathParams: [NAME],
-    body: [{
-      name: "hnsw", type: "object", required: true, description: "The settings to change.", children: [
-        { name: "ef_search", type: "integer", required: true, description: "Query-time candidates, 1–10,000." },
-      ],
-    }],
+    body: [
+      {
+        name: "hnsw", type: "object", description: "Search settings to change.", children: [
+          { name: "ef_search", type: "integer", required: true, description: "Query-time candidates, 1–10,000." },
+        ],
+      },
+      {
+        name: "embed", type: "object | null", description: "The embedding model to use for text, or null to remove it. It must produce vectors of the index's dimension.", children: [
+          { name: "provider", type: "string", required: true, description: "A provider id." },
+          { name: "model", type: "string", required: true, description: "A model id." },
+          { name: "field", type: "string", defaultValue: "text", description: "Metadata field that holds each record's text." },
+        ],
+      },
+    ],
     response: INDEX_FIELDS,
     curl: `curl -X PATCH ${ORIGIN}/indexes/products \\
   ${JSON_H} \\

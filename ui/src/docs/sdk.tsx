@@ -112,9 +112,10 @@ db.has_index(name) -> bool`}
           <p>Read index descriptions. A scoped key only sees its own indexes.</p>
         </Signature>
 
-        <Signature id="configure_index" name="configure_index" sig={`db.configure_index(name, ef_search) -> Obj`}
-          example={`db.configure_index("products", ef_search=256)`}>
-          <p>Change the default HNSW search width.</p>
+        <Signature id="configure_index" name="configure_index" sig={`db.configure_index(name, ef_search=None, *, embed=...) -> Obj`}
+          example={`db.configure_index("products", ef_search=256)
+db.configure_index("articles", embed={"provider": "openai", "model": "text-embedding-3-large", "field": "summary"})`}>
+          <p>Change the default HNSW search width, or connect the embedding model that made an index's vectors so it can be searched by text. <C>embed=None</C> disconnects it.</p>
         </Signature>
 
         <Signature id="delete_index" name="delete_index" sig={`db.delete_index(name) -> None`}>
