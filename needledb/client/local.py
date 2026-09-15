@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..errors import AlreadyExists
+from .common import KEEP, check_existing
 from .index import BaseIndex, Obj, wrap
-
-_KEEP = object()
 
 
 class NeedleDBLocal:
@@ -26,10 +26,18 @@ class NeedleDBLocal:
         self._registry = Registry(path)
 
     def create_index(self, name: str, dimension: int | None = None, metric: str = "cosine",
-                     index_type: str = "auto", hnsw: dict | None = None, embed: dict | None = None) -> Obj:
+                     index_type: str = "auto", hnsw: dict | None = None, embed: dict | None = None,
+                     *, exist_ok: bool = False) -> Obj:
         cfg = self._config.from_dict({"name": name, "dimension": dimension, "metric": metric,
                                       "index_type": index_type, "hnsw": hnsw, "embed": embed})
-        return wrap(self._registry.create_index(cfg).summary())
+        try:
+            return wrap(self._registry.create_index(cfg).summary())
+        except AlreadyExists:
+            if not exist_ok:
+                raise
+        info = self.describe_index(name)
+        check_existing(info, dimension, metric)
+        return info
 
     def list_indexes(self) -> list[Obj]:
         return [wrap(i.summary()) for i in self._registry.list()]
@@ -40,15 +48,15 @@ class NeedleDBLocal:
     def has_index(self, name: str) -> bool:
         return any(i.cfg.name == name for i in self._registry.list())
 
-    def configure_index(self, name: str, ef_search: int | None = None, *, embed=_KEEP) -> Obj:
+    def configure_index(self, name: str, ef_search: int | None = None, *, embed=KEEP) -> Obj:
         index = self._registry.get(name)
-        index.configure(ef_search, **({} if embed is _KEEP else {"embed": embed}))
+        index.configure(ef_search, **({} if embed is KEEP else {"embed": embed}))
         return wrap(index.summary())
 
     def delete_index(self, name: str) -> None:
         self._registry.delete_index(name)
 
-    def Index(self, name: str) -> "LocalIndex":  # noqa: N802 — matches Pinecone's SDK
+    def Index(self, name: str) -> LocalIndex:  # noqa: N802 — matches Pinecone's SDK
         return LocalIndex(self._registry.get(name))
 
     index = Index
@@ -62,6 +70,9 @@ class NeedleDBLocal:
 
     def __exit__(self, *exc):
         self.close()
+
+    def __repr__(self) -> str:
+        return f"<NeedleDBLocal {str(self._registry.data_dir)!r}>"
 
 
 class LocalIndex(BaseIndex):
@@ -91,6 +102,9 @@ class LocalIndex(BaseIndex):
 
     def _stats(self, filter):
         return self._engine.describe_stats(filter)
+
+    def _describe(self):
+        return self._engine.summary()
 
     def wait_for_index(self, timeout: float | None = None) -> None:
         """Block until any background HNSW build or compaction has been swapped in."""

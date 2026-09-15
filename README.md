@@ -56,6 +56,22 @@ address other than localhost.
 from needledb import NeedleDB
 
 db = NeedleDB("http://localhost:8080", api_key="…")
+db.create_index("docs", embed={"provider": "openai", "model": "text-embedding-3-small"}, exist_ok=True)
+docs = db.Index("docs")
+
+docs.upsert_texts(["Waterproof hiking boots", "Cast iron skillet"], metadata={"source": "catalog"})
+res = docs.search("shoes for rainy hikes", top_k=5)   # a string searches by meaning
+print(res.matches[0].metadata.text)
+
+docs.get(res.matches[0].id)                          # one record, or None
+docs.count(filter={"source": "catalog"})
+for record in docs.scan():                           # every record, a page at a time
+    ...
+```
+
+Indexes of your own vectors use the same Pinecone-shaped calls:
+
+```python
 db.create_index("products", dimension=3072, metric="cosine")
 index = db.Index("products")
 
@@ -77,6 +93,17 @@ index.delete(filter={"brand": "zenith"})
 for page in index.list(prefix="sku-"):
     ...
 index.describe_index_stats().total_vector_count
+```
+
+**Async** code gets the same methods, awaited, with parallel batch uploads:
+
+```python
+from needledb import AsyncNeedleDB
+
+async with AsyncNeedleDB("http://localhost:8080") as db:
+    index = db.Index("products")
+    await index.upsert_arrays(ids, matrix, max_concurrency=8)
+    res = await index.search(embedding, top_k=10)
 ```
 
 **Embedded mode** runs the same engine in your process, with no server, and persists to a directory:

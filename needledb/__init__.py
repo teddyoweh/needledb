@@ -1,13 +1,13 @@
 """NeedleDB — a self-hostable vector database with a Pinecone-shaped API.
 
-    from needledb import NeedleDB, NeedleDBLocal
+    from needledb import NeedleDB, AsyncNeedleDB, NeedleDBLocal
 
-`NeedleDB` talks to a running server; `NeedleDBLocal` runs the same engine inside
-your process. Both expose the same `Index` methods.
+`NeedleDB` talks to a running server and `AsyncNeedleDB` does the same for asyncio code;
+`NeedleDBLocal` runs the engine inside your process. All three expose the same `Index` methods.
 """
 
 __version__ = "0.1.0"
-__all__ = ["NeedleDB", "NeedleDBLocal", "__version__"]
+__all__ = ["AsyncNeedleDB", "NeedleDB", "NeedleDBLocal", "__version__"]
 
 
 def __getattr__(name: str):
@@ -16,6 +16,9 @@ def __getattr__(name: str):
     if name == "NeedleDB":
         from .client.http import NeedleDB
         return NeedleDB
+    if name == "AsyncNeedleDB":
+        from .client.aio import AsyncNeedleDB
+        return AsyncNeedleDB
     if name == "NeedleDBLocal":
         from .client.local import NeedleDBLocal
         return NeedleDBLocal

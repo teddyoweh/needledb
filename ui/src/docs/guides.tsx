@@ -72,8 +72,8 @@ export const GUIDES: DocPage[] = [
 db = NeedleDB("${ORIGIN}")
 index = db.Index("products")
 
-res = index.query(
-    vector=embedding,
+res = index.search(
+    "waterproof boots for muddy trails",
     top_k=10,
     filter={"brand": {"$in": ["acme", "zenith"]}},
 )`} />
@@ -520,25 +520,36 @@ for match in res.matches:
           <Step title="Create the index">
             <p>The dimension comes from the model.</p>
             <CodeTabs tabs={[
-              { label: "Python", lang: "python", code: `db.create_index("products", embed={"provider": "openai", "model": "text-embedding-3-small"})` },
+              { label: "Python", lang: "python", code: `db.create_index("products", embed={"provider": "openai", "model": "text-embedding-3-small"}, exist_ok=True)` },
               { label: "cURL", lang: "bash", code: `curl ${ORIGIN}/indexes \\
   -H "Api-Key: $NEEDLEDB_API_KEY" -H "Content-Type: application/json" \\
   -d '{"name": "products", "embed": {"provider": "openai", "model": "text-embedding-3-small"}}'` },
             ]} />
           </Step>
           <Step title="Upsert text">
-            <CodeBlock lang="python" title="Python" code={`index = db.Index("products")
+            <CodeTabs tabs={[
+              { label: "upsert_texts", lang: "python", code: `index = db.Index("products")
+index.upsert_texts(
+    ["Waterproof hiking boots for muddy trails", "Cast iron skillet for searing steak"],
+    ids=["sku-1", "sku-2"],
+    metadata=[{"price": 129}, {"category": "kitchen"}],
+)` },
+              { label: "upsert", lang: "python", code: `index = db.Index("products")
 index.upsert([
     {"id": "sku-1", "text": "Waterproof hiking boots for muddy trails", "metadata": {"price": 129}},
     {"id": "sku-2", "text": "Cast iron skillet for searing steak", "category": "kitchen"},
-])`} />
-            <p>Top-level fields other than <C>id</C>, <C>text</C> and <C>metadata</C> become metadata too, as in the second record.</p>
+])` },
+              { label: "cURL", lang: "bash", code: `curl ${ORIGIN}/indexes/products/vectors/upsert \\
+  -H "Api-Key: $NEEDLEDB_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"vectors": [{"id": "sku-1", "text": "Waterproof hiking boots for muddy trails", "metadata": {"price": 129}}]}'` },
+            ]} />
+            <p><C>upsert_texts</C> takes a list of strings; leave out <C>ids</C> and each id is a hash of its text. With <C>upsert</C>, top-level fields other than <C>id</C>, <C>text</C> and <C>metadata</C> become metadata too, as in the second record.</p>
           </Step>
           <Step title="Search by meaning">
             <CodeTabs tabs={[
               { label: "Python", lang: "python", code: `res = index.search("shoes for rainy hikes", top_k=5, filter={"price": {"$lt": 150}})
 for match in res.matches:
-    print(match.score, match.metadata["text"])` },
+    print(f"{match.score:.3f}", match.metadata.text)` },
               { label: "cURL", lang: "bash", code: `curl ${ORIGIN}/indexes/products/query \\
   -H "Api-Key: $NEEDLEDB_API_KEY" -H "Content-Type: application/json" \\
   -d '{"text": "shoes for rainy hikes", "topK": 5, "includeMetadata": true}'` },

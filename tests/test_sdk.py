@@ -112,3 +112,90 @@ def test_official_pinecone_client_works(tmp_path):
         server.should_exit = True
         thread.join(5)
         app.state.registry.close()
+
+
+# ---- text, convenience helpers and the async client ---------------------------------------
+
+from needledb import AsyncNeedleDB  # noqa: E402
+
+from needledb.client.common import text_id  # noqa: E402
+
+from .test_embed import DOCS, SMALL, fake_openai  # noqa: E402,F401 — the fixture, reused
+
+
+@pytest.fixture
+def openai_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+
+def test_text_helpers(db, fake_openai, openai_key):
+    assert db.create_index("shop", embed=SMALL).dimension == 1536
+    assert db.create_index("shop", embed=SMALL, exist_ok=True).name == "shop"
+    with pytest.raises(AlreadyExists, match="dimension 1536"):
+        db.create_index("shop", dimension=8, exist_ok=True)
+
+    index = db.Index("shop")
+    loaded = index.upsert_texts([t for _, t, _ in DOCS], ids=[r for r, _, _ in DOCS],
+                                metadata=[m for _, _, m in DOCS])
+    assert loaded.upserted_count == 3 and loaded.ids == ["boots", "skillet", "tent"]
+
+    hits = index.search("searing steak", top_k=2)
+    assert hits.matches[0].id == "skillet" and hits.matches[0].metadata.text == DOCS[1][1]
+    assert index.search(text="camping tent", top_k=1, filter={"category": "outdoor"}).matches[0].id == "tent"
+    by_vector = index.search(index.get("tent").values, top_k=1)
+    assert by_vector.matches[0].id == "tent"
+    with pytest.raises(ValueError):
+        index.search()
+
+    auto = index.upsert_texts(["a note", "a note", "another note"], metadata={"kind": "note"})
+    assert auto.upserted_count == 2 and auto.ids[0] == text_id("a note")
+    assert index.count() == 5 and index.count(filter={"kind": "note"}) == 2 and index.count("elsewhere") == 0
+
+    record = index.get("boots")
+    assert record.metadata.category == "outdoor" and len(record.values) == 1536
+    assert index.get("missing") is None
+    assert index.describe().embed.model == "text-embedding-3-small"
+
+    scanned = list(index.scan(batch_size=2))
+    assert len(scanned) == 5 and all("values" not in r for r in scanned)
+    assert [r.id for r in index.scan(prefix="bo", include_values=True)] == ["boots"]
+
+
+def test_async_client(app, client, fake_openai, openai_key):
+    import asyncio
+
+    import httpx
+
+    async def main():
+        transport = httpx.ASGITransport(app=app)
+        async with AsyncNeedleDB(api_key=API_KEY, client=httpx.AsyncClient(transport=transport, base_url="http://test")) as db:
+            await db.create_index("docs", dimension=8)
+            assert await db.has_index("docs")
+            await db.create_index("shop", embed=SMALL, exist_ok=True)
+            index = db.Index("docs")
+            rng = np.random.default_rng(1)
+            vectors = rng.normal(size=(1_000, 8)).astype(np.float32)
+            ids = [f"doc-{i}" for i in range(1_000)]
+            res = await index.upsert_arrays(ids, vectors, [{"even": i % 2 == 0} for i in range(1_000)],
+                                            batch_size=128, max_concurrency=4)
+            assert res.upserted_count == 1_000 and await index.count() == 1_000
+            assert (await index.query(vectors[7], top_k=1)).matches[0].id == "doc-7"
+            assert (await index.get("doc-7")).metadata == {"even": False}
+            assert len([r async for r in index.scan(prefix="doc-9", batch_size=50)]) == 111
+            assert (await index.delete(filter={"even": True})).deleted_count == 500
+
+            shop = db.index("shop")
+            await shop.upsert_texts([t for _, t, _ in DOCS], ids=[r for r, _, _ in DOCS])
+            assert (await shop.search("searing steak", top_k=1)).matches[0].id == "skillet"
+            with pytest.raises(NotFound):
+                await db.describe_index("nope")
+
+    asyncio.run(main())
+
+
+def test_obj_values_reads_the_vector():
+    from needledb.client.index import wrap
+
+    record = wrap({"id": "a", "values": [1.0, 2.0], "metadata": {"k": 1}})
+    assert record.values == [1.0, 2.0] and record.metadata.k == 1
+    assert list(wrap({"x": 1}).values()) == [1]
