@@ -8,10 +8,12 @@ fastembed (`pip install "needledb[local]"`).
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Literal
 
@@ -326,3 +328,91 @@ def embed_texts(provider: str, model: str, dimension: int, texts: list[str], kin
         got = matrix.shape[1] if matrix.ndim == 2 else "mixed"
         raise Unavailable(f"{spec.name} returned vectors of dimension {got}; this index expects {dimension}")
     return matrix
+
+
+# ---- cache -----------------------------------------------------------------------------
+
+CACHE_ENTRIES = 4_000
+_cache_lock = threading.Lock()
+_cache: OrderedDict[tuple, np.ndarray] = OrderedDict()
+
+
+def clear_cache() -> None:
+    with _cache_lock:
+        _cache.clear()
+
+
+def embed_cached(provider: str, model: str, dimension: int, texts: list[str], kind: Kind) -> np.ndarray:
+    """`embed_texts`, remembering recent results in memory — for search-as-you-type and the playground."""
+    keys = [(provider, model, dimension, kind, hashlib.sha1(t.encode() if isinstance(t, str) else b"").digest())
+            for t in texts]
+    rows: list[np.ndarray | None] = [None] * len(texts)
+    missing: list[int] = []
+    with _cache_lock:
+        for i, key in enumerate(keys):
+            hit = _cache.get(key)
+            if hit is None:
+                missing.append(i)
+            else:
+                _cache.move_to_end(key)
+                rows[i] = hit
+    if missing:
+        fresh = embed_texts(provider, model, dimension, [texts[i] for i in missing], kind)
+        with _cache_lock:
+            for row, i in enumerate(missing):
+                rows[i] = fresh[row]
+                _cache[keys[i]] = fresh[row]
+            while len(_cache) > CACHE_ENTRIES:
+                _cache.popitem(last=False)
+    return np.vstack(rows) if rows else np.zeros((0, dimension), dtype=np.float32)
+
+
+# ---- playground ------------------------------------------------------------------------
+
+MAX_COMPARE_DOCUMENTS = 200
+MAX_COMPARE_DOCUMENT_CHARS = 4_000
+MAX_COMPARE_QUERY_CHARS = 2_000
+MAX_COMPARE_MODELS = 4
+
+
+def compare(body: dict) -> dict:
+    """Rank `documents` against `query` with each model, storing nothing.
+
+    Each model reports matches or its own error, so a provider without a key doesn't
+    fail the others. Scores are cosine similarity.
+    """
+    query, documents, models = body.get("query"), body.get("documents"), body.get("models")
+    top_k = body.get("topK", body.get("top_k", 10))
+    if not isinstance(query, str) or not query.strip() or len(query) > MAX_COMPARE_QUERY_CHARS:
+        raise InvalidArgument(f"query must be non-empty text of at most {MAX_COMPARE_QUERY_CHARS} characters")
+    if not isinstance(documents, list) or not 1 <= len(documents) <= MAX_COMPARE_DOCUMENTS:
+        raise InvalidArgument(f"documents must be a list of 1 to {MAX_COMPARE_DOCUMENTS} texts")
+    if not all(isinstance(d, str) and d.strip() and len(d) <= MAX_COMPARE_DOCUMENT_CHARS for d in documents):
+        raise InvalidArgument(f"each document must be non-empty text of at most {MAX_COMPARE_DOCUMENT_CHARS} characters")
+    if not isinstance(models, list) or not 1 <= len(models) <= MAX_COMPARE_MODELS or not all(isinstance(m, dict) for m in models):
+        raise InvalidArgument(f"models must be a list of 1 to {MAX_COMPARE_MODELS} objects with provider and model")
+    if not isinstance(top_k, int) or isinstance(top_k, bool) or not 1 <= top_k <= MAX_COMPARE_DOCUMENTS:
+        raise InvalidArgument(f"topK must be an integer from 1 to {MAX_COMPARE_DOCUMENTS}")
+
+    results = []
+    for spec in models:
+        provider, model_id = spec.get("provider"), spec.get("model")
+        started = time.perf_counter()
+        try:
+            model = get_model(provider, model_id)
+            dimension = spec.get("dimension") or model.dimension
+            if not isinstance(dimension, int) or isinstance(dimension, bool) or not model.supports(dimension):
+                raise InvalidArgument(f"{model.name} can't produce {dimension}-dimensional vectors")
+            docs = embed_cached(provider, model_id, dimension, documents, "document")
+            q = embed_cached(provider, model_id, dimension, [query], "query")[0]
+            docs = docs / np.maximum(np.linalg.norm(docs, axis=1, keepdims=True), 1e-12)
+            scores = docs @ (q / max(float(np.linalg.norm(q)), 1e-12))
+            order = np.argsort(-scores, kind="stable")[:top_k]
+            results.append({
+                "provider": provider, "model": model_id, "name": model.name, "dimension": dimension,
+                "embedMs": round((time.perf_counter() - started) * 1000, 1),
+                "matches": [{"index": int(i), "score": round(float(scores[i]), 4)} for i in order],
+            })
+        except NeedleError as exc:
+            results.append({"provider": provider, "model": model_id, "error": {"code": exc.code, "message": exc.message}})
+    return {"results": results}

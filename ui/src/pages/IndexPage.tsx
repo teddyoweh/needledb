@@ -17,6 +17,7 @@ import {
   IconRows,
   IconSearch,
   IconSliders,
+  IconSparkles,
   IconTarget,
   IconTrash,
   IconUpload,
@@ -162,6 +163,9 @@ function IndexHero({ index, route }: { index: IndexInfo; route: string }) {
       </div>
       <div className="page-actions">
         <a className="btn btn-secondary btn-md" href="#/docs/api/query"><IconBook size={16} />Docs</a>
+        {index.embed && (
+          <Button icon={<IconSparkles size={16} />} onClick={() => go(`/playground?index=${encodeURIComponent(index.name)}`)}>Playground</Button>
+        )}
         <Button icon={<IconTarget size={16} />} onClick={() => go(`${route}/explore`)}>Explore</Button>
         <Button variant="primary" icon={<IconSearch size={16} />} onClick={() => go(`${route}/query`)}>Query</Button>
       </div>

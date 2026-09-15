@@ -204,10 +204,10 @@ class Index:
         if text is not None:
             if self.cfg.embed is None:
                 raise InvalidArgument("this index has no embedding model, so it can't search by text; send a vector")
-            from ..embed import embed_texts
+            from ..embed import embed_cached  # repeated searches, e.g. while typing, skip the model
 
             embed_started = time.perf_counter()
-            vector = embed_texts(self.cfg.embed.provider, self.cfg.embed.model, self.cfg.dimension, [text], "query")[0]
+            vector = embed_cached(self.cfg.embed.provider, self.cfg.embed.model, self.cfg.dimension, [text], "query")[0]
             embed_ms = round((time.perf_counter() - embed_started) * 1000, 3)
         if ef_search is not None and (not isinstance(ef_search, int) or not 1 <= ef_search <= 10_000):
             raise InvalidArgument("efSearch must be an integer from 1 to 10000")

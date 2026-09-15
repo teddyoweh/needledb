@@ -74,6 +74,16 @@ export type EmbeddingModel = {
 };
 export type EmbeddingCatalog = { providers: EmbeddingProvider[]; models: EmbeddingModel[] };
 
+export type CompareResult = {
+  provider: string;
+  model: string;
+  name?: string;
+  dimension?: number;
+  embedMs?: number;
+  matches?: { index: number; score: number }[];
+  error?: { code: string; message: string };
+};
+
 export type IndexInfo = {
   name: string;
   dimension: number;
@@ -192,6 +202,8 @@ export const api = {
   createIndex: (body: { name: string; dimension: number; metric: Metric; index_type: IndexType; hnsw: IndexInfo["hnsw"]; embed?: { provider: string; model: string } }) =>
     call<IndexInfo>("POST", "/indexes", body),
   embeddingModels: () => call<EmbeddingCatalog>("GET", "/embeddings/models"),
+  compareModels: (body: { query: string; documents: string[]; models: { provider: string; model: string }[]; topK: number }) =>
+    call<{ results: CompareResult[] }>("POST", "/playground/compare", body),
   configure: (name: string, efSearch: number) =>
     call<IndexInfo>("PATCH", `/indexes/${seg(name)}`, { hnsw: { ef_search: efSearch } }),
   deleteIndex: (name: string) => call<object>("DELETE", `/indexes/${seg(name)}`),

@@ -102,6 +102,7 @@ def _mock(handler):
 
 @pytest.fixture(autouse=True)
 def _reset_http():
+    embed.clear_cache()
     yield
     embed.set_http_client(None)
 
@@ -198,3 +199,31 @@ def test_real_local_model_searches_by_meaning(registry):
     index.upsert([{"id": r, "text": t, "metadata": m} for r, t, m in DOCS])
     assert index.query(text="a pan to cook dinner", top_k=1)["matches"][0]["id"] == "skillet"
     assert index.query(text="shoes for walking in the rain", top_k=1)["matches"][0]["id"] == "boots"
+
+
+def test_playground_compares_models(client, fake_openai, monkeypatch):
+    monkeypatch.delenv("COHERE_API_KEY", raising=False)
+    monkeypatch.delenv("CO_API_KEY", raising=False)
+    body = {"query": "hiking boots trails", "documents": [t for _, t, _ in DOCS], "topK": 2,
+            "models": [SMALL, {"provider": "cohere", "model": "embed-english-v3.0"}]}
+    resp = client.post("/playground/compare", json=body)
+    assert resp.status_code == 200, resp.text
+    first, second = resp.json()["results"]
+    assert first["matches"][0]["index"] == 0 and len(first["matches"]) == 2 and first["dimension"] == 1536
+    assert second["error"]["code"] == "FAILED_PRECONDITION"   # one model failing doesn't fail the rest
+
+    calls = len(fake_openai)
+    assert client.post("/playground/compare", json=body).status_code == 200
+    assert len(fake_openai) == calls                          # documents and query came from the cache
+
+    assert client.post("/playground/compare", json={**body, "documents": []}).status_code == 400
+    assert client.post("/playground/compare", json={**body, "models": []}).status_code == 400
+
+
+def test_text_queries_are_cached(registry, fake_openai):
+    index = registry.create_index(IndexConfig.from_dict({"name": "shop", "dimension": 512, "embed": SMALL}))
+    index.upsert([{"id": r, "text": t} for r, t, _ in DOCS])
+    index.query(text="camping tent", top_k=1)
+    calls = len(fake_openai)
+    assert index.query(text="camping tent", top_k=1)["matches"][0]["id"] == "tent"
+    assert len(fake_openai) == calls

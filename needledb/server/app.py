@@ -29,6 +29,7 @@ from .. import __version__
 from ..core import IndexConfig, Registry
 from ..core.metrics import Metrics
 from ..embed import catalog as embed_catalog
+from ..embed import compare as embed_compare
 from ..errors import (
     InvalidArgument,
     NeedleError,
@@ -484,6 +485,13 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     async def embedding_models(request: Request):
         need(request, "read")
         return _json(embed_catalog())
+
+    @app.post("/playground/compare")
+    async def playground_compare(request: Request):
+        # Write access: comparing spends embedding-provider credits.
+        need(request, "write")
+        raw = await request.body()
+        return Response(await run(lambda: orjson.dumps(embed_compare(_parse(raw)))), media_type="application/json")
 
     @app.get("/indexes")
     async def list_indexes(request: Request):

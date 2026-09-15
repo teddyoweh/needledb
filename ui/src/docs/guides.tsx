@@ -537,6 +537,9 @@ for match in res.matches:
           </Step>
         </Steps>
 
+        <H2 id="playground">Try it in the playground</H2>
+        <p>The web app's <b>Playground</b> searches any text index as you type, with one-click filters built from your metadata. Its <b>Compare models</b> tab ranks a list of your own sentences with up to three models side by side — no index needed — so you can pick a model before embedding a whole collection.</p>
+
         <H2 id="models">Hosted models</H2>
         <DocTable head={["Provider", "embed.model", "Dimension", "Also"]} rows={EMBED_MODELS.map(([provider, model, dim, also]) => [
           <span className="doc-provider"><BrandLogo vendor={PROVIDER_VENDOR[provider]} size={16} />{PROVIDER_NAMES[provider]}</span>,

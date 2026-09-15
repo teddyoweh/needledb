@@ -311,6 +311,50 @@ print(stats.total_vector_count)`,
 }`,
   },
   {
+    slug: "compare-models", title: "Compare models", group: "Embedding", method: "POST", path: "/playground/compare", access: "write",
+    summary: "Rank a list of texts against a query with several models at once, storing nothing.",
+    keywords: "playground compare try test ranking natural language",
+    about: <p>Powers the app's playground. Each model returns matches or its own error, so one provider without a key doesn't fail the rest. Embeddings are cached in memory, so repeating a query or document is free. Scores are cosine similarity.</p>,
+    body: [
+      { name: "query", type: "string", required: true, description: "What to search for, up to 2,000 characters." },
+      { name: "documents", type: "string[]", required: true, description: "1–200 texts of up to 4,000 characters each." },
+      {
+        name: "models", type: "object[]", required: true, description: "1–4 models to compare.", children: [
+          { name: "provider", type: "string", required: true, description: "A provider id." },
+          { name: "model", type: "string", required: true, description: "A model id." },
+          { name: "dimension", type: "integer", description: "Output size, for models that support several." },
+        ],
+      },
+      { name: "topK", type: "integer", defaultValue: "10", description: "Matches per model, 1–200." },
+    ],
+    response: [{
+      name: "results", type: "object[]", description: "One per model, in the order requested.", children: [
+        { name: "provider", type: "string", description: "Provider id." },
+        { name: "model", type: "string", description: "Model id." },
+        { name: "name", type: "string", description: "Display name." },
+        { name: "dimension", type: "integer", description: "Output size used." },
+        { name: "embedMs", type: "number", description: "Time spent embedding." },
+        { name: "matches", type: "object[]", description: "Best first, each with an index into documents and a score." },
+        { name: "error", type: "object", description: "code and message, when this model failed." },
+      ],
+    }],
+    curl: `curl ${ORIGIN}/playground/compare \\
+  ${JSON_H} \\
+  -d '{"query": "keep me dry in the rain",
+       "documents": ["Waterproof rain jacket", "Cast iron skillet"],
+       "models": [{"provider": "local", "model": "BAAI/bge-small-en-v1.5"},
+                  {"provider": "openai", "model": "text-embedding-3-small"}],
+       "topK": 2}'`,
+    example: `{
+  "results": [
+    {"provider": "local", "model": "BAAI/bge-small-en-v1.5", "name": "BGE Small", "dimension": 384,
+     "embedMs": 41.7, "matches": [{"index": 0, "score": 0.7412}, {"index": 1, "score": 0.4108}]},
+    {"provider": "openai", "model": "text-embedding-3-small",
+     "error": {"code": "FAILED_PRECONDITION", "message": "OpenAI embeddings need OPENAI_API_KEY set in the server's environment"}}
+  ]
+}`,
+  },
+  {
     slug: "upsert", title: "Upsert vectors", group: "Vectors", method: "POST", path: "/indexes/{name}/vectors/upsert", access: "write",
     summary: "Insert records, or overwrite records with the same id.",
     keywords: "insert write add",

@@ -571,3 +571,102 @@
   .model-meta { display: none; }
 }
 .doc-provider { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+
+/* ---- playground ---------------------------------------------------------------------------------------- */
+
+.spinner.dark { flex: none; width: 18px; height: 18px; border-color: var(--fill-3); border-top-color: var(--accent); }
+
+.pg { display: flex; flex-direction: column; gap: 14px; }
+.pg-search { display: flex; flex-direction: column; gap: 12px; padding: 14px; background: var(--card); border-radius: var(--r-xl); }
+.pg-bar { display: flex; align-items: stretch; gap: 10px; }
+.pg-index { width: auto; max-width: 220px; height: 58px; padding-left: 16px; border-radius: 15px; font-size: 14.5px; font-weight: 550; }
+.pg-input {
+  display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; height: 58px; padding: 0 8px 0 18px;
+  background: var(--fill); color: var(--ink-3); border-radius: 15px;
+  outline: 2px solid transparent; transition: background 0.15s, outline-color 0.15s;
+}
+.pg-input:focus-within { background: var(--card); outline-color: rgb(47 107 255 / 0.45); }
+.pg-input input { height: 100%; padding: 0; background: transparent; color: var(--ink); outline: none; font-size: 17px; }
+.pg-input input:focus { background: transparent; }
+.card .pg-input:focus-within { background: var(--fill); }
+.pg-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 0 4px; color: var(--ink-3); font-size: 12.5px; }
+.pg-control-group { display: flex; gap: 8px; }
+.pg-control-group select { width: auto; height: 32px; padding-top: 0; padding-bottom: 0; font-size: 13px; }
+.pg-facets { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 2px 4px; }
+.pg-facet { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pg-facet > span { margin-right: 2px; color: var(--ink-3); font-size: 12px; font-weight: 550; }
+.pg-facet button { height: 28px; padding: 0 11px; background: var(--fill); color: var(--ink-2); border: 0; border-radius: 999px; font: 500 12.5px var(--font); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.pg-facet button:hover { background: var(--fill-2); color: var(--ink); }
+.pg-facet button.on { background: var(--ink); color: #fff; }
+
+.pg-idle { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 56px 24px 60px; background: var(--card); border-radius: var(--r-xl); text-align: center; }
+.pg-idle-icon { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 6px; border-radius: 16px; background: var(--accent-soft); color: var(--accent); }
+.pg-idle b { font-size: 18px; }
+.pg-idle p { max-width: 56ch; color: var(--ink-3); font-size: 14px; }
+.pg-recent { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; margin-top: 14px; }
+.pg-recent > span { margin-right: 4px; color: var(--ink-3); font-size: 12px; }
+.pg-recent button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; background: var(--fill); color: var(--ink-2); border: 0; border-radius: 999px; font: 500 13px var(--font); cursor: pointer; }
+.pg-recent button:hover { background: var(--fill-2); color: var(--ink); }
+
+.pg-results { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 0 4px; list-style: none; }
+.pg-result { display: grid; grid-template-columns: 30px minmax(0, 1fr) 150px; align-items: center; gap: 16px; padding: 14px; border-radius: 14px; animation: rise 0.35s var(--ease) both; }
+.pg-result:hover { background: #f8f8fa; }
+.pg-rank { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; background: var(--fill); color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.pg-rank.first { background: var(--accent); color: #fff; }
+.pg-body { min-width: 0; }
+.pg-text { color: var(--ink); font-size: 15px; font-weight: 500; line-height: 1.45; }
+.pg-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.pg-id { color: var(--ink-3); font-size: 12px; }
+.pg-score { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pg-score b { font-size: 14px; font-variant-numeric: tabular-nums; }
+
+.cmp { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.cmp-docs { position: sticky; top: 84px; }
+.cmp-textarea { min-height: 440px; font-size: 13px; line-height: 1.75; white-space: pre; overflow-x: auto; }
+.cmp-suggest { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.cmp-suggest > span { margin-right: 2px; color: var(--ink-3); font-size: 12px; }
+.cmp-suggest button { height: 30px; padding: 0 12px; background: var(--fill); color: var(--ink-2); border: 0; border-radius: 999px; font: 500 12.5px var(--font); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.cmp-suggest button:hover { background: var(--fill-2); color: var(--ink); }
+.cmp-suggest button.on { background: var(--accent-soft); color: var(--accent); }
+.cmp-models { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.cmp-slot { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 5px; background: var(--fill); border-radius: 12px; }
+.cmp-slot .brand-logo.tile { width: 30px; height: 30px; }
+.cmp-slot select { width: auto; max-width: 280px; height: 32px; padding: 0 30px 0 6px; background-color: transparent; font-size: 13px; font-weight: 550; }
+.cmp-slot select:focus { background-color: var(--card); }
+.cmp-slot .icon-button { width: 28px; height: 28px; }
+.cmp-slot .icon-button:hover { background: var(--card); }
+select.cmp-topk { width: auto; height: 32px; margin-left: auto; padding-top: 0; padding-bottom: 0; font-size: 13px; }
+.cmp-columns { display: grid; gap: 12px; align-items: start; }
+.cmp-col { min-width: 0; padding: 14px; background: var(--card); border-radius: var(--r-lg); animation: rise 0.3s var(--ease) both; }
+.cmp-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cmp-head > div { display: flex; flex-direction: column; min-width: 0; }
+.cmp-head b { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-head span { overflow: hidden; color: var(--ink-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-agree { margin: 0 0 8px; padding: 6px 10px; background: var(--surface); color: var(--ink-2); border-radius: 9px; font-size: 12px; }
+.cmp-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.cmp-list li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; padding: 10px 8px; border-radius: 11px; transition: background 0.12s; }
+.cmp-list li.hot { background: var(--accent-soft); }
+.cmp-rank { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; background: var(--fill); color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.cmp-list li.hot .cmp-rank { background: var(--card); }
+.cmp-main { min-width: 0; }
+.cmp-main p { color: var(--ink); font-size: 13.5px; line-height: 1.45; }
+.cmp-scoreline { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cmp-scoreline .bar { flex: 1; }
+.cmp-scoreline b { color: var(--ink-2); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cmp-move { padding: 1px 6px; border-radius: 6px; background: var(--fill); color: var(--ink-3); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.cmp-move.up { background: var(--good-soft); color: var(--good); }
+.cmp-move.down { background: var(--bad-soft); color: var(--bad); }
+.cmp-move.new { background: var(--accent-soft); color: var(--accent); }
+
+@media (max-width: 1180px) {
+  .cmp { grid-template-columns: minmax(0, 1fr); }
+  .cmp-docs { position: static; }
+  .cmp-textarea { min-height: 220px; }
+}
+@media (max-width: 860px) {
+  .cmp-columns { grid-template-columns: minmax(0, 1fr) !important; }
+  .pg-bar { flex-direction: column; }
+  .pg-index { max-width: none; height: 46px; }
+  .pg-result { grid-template-columns: 30px minmax(0, 1fr); }
+  .pg-score { grid-column: 2; align-items: flex-start; }
+}
