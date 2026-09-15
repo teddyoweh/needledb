@@ -45,6 +45,7 @@ _UNTRACKED = ("/health", "/metrics", "/stats", "/app", "/ui", "/auth", "/keys", 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 _APP_CSP = (b"default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; "
             b"form-action 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+            b"font-src 'self' https://fonts.gstatic.com; "
             b"script-src 'self'; connect-src 'self'")
 
 
