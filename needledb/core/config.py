@@ -25,7 +25,7 @@ AUTO_HNSW_THRESHOLD = 20_000
 BRUTE_FORCE_LIMIT = 5_000
 BRUTE_FORCE_FRACTION = 0.02
 
-_NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$")
+NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$")
 
 
 @dataclass
@@ -89,7 +89,7 @@ class IndexConfig:
             from ..embed import get_model
 
             get_model(self.embed.provider, self.embed.model)  # name the unknown model, not the missing dimension
-        if not isinstance(self.name, str) or not _NAME_RE.match(self.name):
+        if not isinstance(self.name, str) or not NAME_RE.match(self.name):
             raise InvalidArgument(
                 "index name must be 1-45 characters of lowercase letters, digits and "
                 "hyphens, starting and ending with a letter or digit")

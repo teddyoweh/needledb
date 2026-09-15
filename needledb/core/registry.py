@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from .config import AlreadyExists, IndexConfig, NotFound
+from .config import NAME_RE, AlreadyExists, IndexConfig, NotFound
 from .index import Index
 
 
@@ -15,9 +15,17 @@ class Registry:
         self._indexes: dict[str, Index] = {}
         self._lock = threading.Lock()
         for child in sorted(self.data_dir.iterdir()):
-            if child.is_dir() and (child / "index.json").exists():
-                index = Index.open(child)
-                self._indexes[index.cfg.name] = index
+            # Only directories that could be an index: a mounted volume also holds things
+            # like lost+found, which is root-owned and would otherwise stop the server.
+            if not NAME_RE.match(child.name):
+                continue
+            try:
+                if not (child.is_dir() and (child / "index.json").exists()):
+                    continue
+            except OSError:
+                continue
+            index = Index.open(child)
+            self._indexes[index.cfg.name] = index
 
     def create_index(self, cfg: IndexConfig) -> Index:
         cfg.validate()

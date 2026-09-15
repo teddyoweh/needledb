@@ -291,3 +291,23 @@ def test_restart_from_snapshot_and_log(tmp_path, monkeypatch):
     reg.delete_index("durable")
     assert not (path / "durable").exists()
     reg.close()
+
+
+def test_a_mounted_volume_opens_despite_its_own_directories(tmp_path):
+    """A data directory on a fresh ext4 volume holds a root-owned lost+found."""
+    from needledb.core import IndexConfig, Registry
+
+    data = tmp_path / "data"
+    registry = Registry(data)
+    registry.create_index(IndexConfig(name="docs", dimension=4))
+    registry.close()
+
+    (data / "lost+found").mkdir()
+    (data / "lost+found" / "index.json").write_text("not an index")   # unreadable in the real case
+    (data / "notes.txt").write_text("stray file")
+
+    reopened = Registry(data)
+    try:
+        assert [i.cfg.name for i in reopened.list()] == ["docs"]
+    finally:
+        reopened.close()
