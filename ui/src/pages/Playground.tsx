@@ -98,11 +98,14 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
   const inputRef = useRef<HTMLInputElement>(null);
   const embed = info?.embed ?? null;
 
-  // Indexes arrive after the first render: take the requested one, else a searchable one.
+  // The URL names the index (?index=…); otherwise take a searchable one. Indexes arrive after the first render.
   useEffect(() => {
-    if (name && ordered.some((i) => i.name === name)) return;
-    const next = (initial && ordered.find((i) => i.name === initial)) || ordered[0];
-    if (next) setName(next.name);
+    const requested = initial ? ordered.find((i) => i.name === initial) : undefined;
+    if (requested) {
+      setName(requested.name);
+    } else if (!name || !ordered.some((i) => i.name === name)) {
+      if (ordered[0]) setName(ordered[0].name);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ordered.map((i) => i.name).join(","), initial]);
 
@@ -183,7 +186,7 @@ function SearchIndex({ indexes, loaded, initial }: { indexes: IndexInfo[]; loade
     <div className="pg">
       <div className="pg-search">
         <div className="pg-bar">
-          <select className="pg-index" aria-label="Index" value={name} onChange={(e) => setName(e.target.value)}>
+          <select className="pg-index" aria-label="Index" value={name} onChange={(e) => go(`/playground?index=${encodeURIComponent(e.target.value)}`)}>
             {ordered.map((i) => <option key={i.name} value={i.name}>{i.name}{i.embed ? "" : " · no model"}</option>)}
           </select>
           <div className={`pg-input ${embed ? "" : "disabled"}`}>
