@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import orjson
 
-from .collection import Collection, Match
+from .collection import Collection
 from .config import (
     MAX_ID_BYTES,
     MAX_METADATA_BYTES,
@@ -268,7 +268,7 @@ class Index:
                 matches, plan = coll.query(q, top_k, filter or None, ef_search,
                                            include_values, include_metadata)
         return {
-            "matches": [_match_dict(m, include_values, include_metadata) for m in matches],
+            "matches": matches,
             "namespace": ns,
             "usage": {"latencyMs": round((time.perf_counter() - started) * 1000, 3), "plan": plan,
                       **({"embedMs": embed_ms} if embed_ms is not None else {})},
@@ -542,11 +542,3 @@ def _group(value) -> str | None:
         return value
     return None
 
-
-def _match_dict(m: Match, include_values: bool, include_metadata: bool) -> dict:
-    out = {"id": m.id, "score": m.score if math.isfinite(m.score) else None}
-    if include_values:
-        out["values"] = m.values
-    if include_metadata:
-        out["metadata"] = m.metadata
-    return out

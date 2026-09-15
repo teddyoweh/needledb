@@ -65,12 +65,8 @@ def _kmeans(x: np.ndarray, k: int, rng: np.random.Generator, iters: int = 30) ->
     return labels
 
 
-@dataclass
-class Match:
-    id: str
-    score: float
-    values: list[float] | None = None
-    metadata: dict | None = None
+# A match is the response object itself — {"id", "score", "values"?, "metadata"?} — built
+# once here. An intermediate record type cost more than the search at small top_k.
 
 
 class Collection:
@@ -83,6 +79,7 @@ class Collection:
         self._cosine = cfg.metric == "cosine"
         self._faiss_metric = faiss.METRIC_L2 if self._euclidean else faiss.METRIC_INNER_PRODUCT
         self._job: threading.Thread | None = None
+        self._search_params: dict[int, faiss.SearchParameters] = {}
         self._last_write = 0.0
         self._ops: list[tuple] | None = None
         self._generation = 0
@@ -113,6 +110,7 @@ class Collection:
         self._norm[: self.n] = norms
         self._tomb = np.zeros(cap, bool)
         self._tomb[: self.n] = tomb
+        self._search_params = {}
         self.slot_ids = slot_ids
         if id_to_slot is None:
             id_to_slot = {rid: s for s, rid in enumerate(slot_ids) if not tomb[s]}
@@ -270,6 +268,7 @@ class Collection:
         self._ann = ann
         self._storage = faiss.downcast_index(ann.storage)
         self._half = half
+        self._search_params = {}
 
     def compact_storage(self, quiet_for: float = 0.0) -> None:
         """Serve from fp16 once a load has settled. Safe to call at any time.
@@ -419,12 +418,12 @@ class Collection:
 
     def query(self, vector: np.ndarray, top_k: int, flt: dict | None = None,
               ef_search: int | None = None, include_values: bool = False,
-              include_metadata: bool = False) -> tuple[list[Match], str]:
+              include_metadata: bool = False) -> tuple[list[dict], str]:
         if self.live == 0:
             return [], "empty"
         q = np.array(vector, dtype=np.float32)
         if self._cosine:
-            qn = float(np.linalg.norm(q))
+            qn = float(np.sqrt(q @ q))
             if qn == 0:
                 raise InvalidArgument("cosine queries cannot use an all-zero vector")
             q /= qn
@@ -453,16 +452,17 @@ class Collection:
             slots, scores = self._ann_search(q, k, mask, ef)
             plan = "exact" if self.ann_kind == "flat" else "hnsw"
 
+        ids, meta = self.slot_ids, self.meta
         matches = []
         for slot, score in zip(slots.tolist(), scores.tolist()):
             if slot < 0:
                 continue
-            m = Match(id=self.slot_ids[slot], score=score)
+            match = {"id": ids[slot], "score": score if -3.4e38 < score < 3.4e38 else None}
             if include_values:
-                m.values = self._original(slot).astype(np.float32).tolist()
+                match["values"] = self._original(slot).tolist()
             if include_metadata:
-                m.metadata = self.meta.get(slot)
-            matches.append(m)
+                match["metadata"] = meta.get(slot)
+            matches.append(match)
         return matches, plan
 
     def _exact(self, q: np.ndarray, cand: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
@@ -486,13 +486,23 @@ class Collection:
         keys = best_keys[order]
         return best_slots[order], (-keys if self._euclidean else keys)
 
+    def _make_params(self, ef: int, k: int) -> faiss.SearchParameters:
+        if self.ann_kind != "hnsw":
+            return faiss.SearchParameters()
+        params = faiss.SearchParametersHNSW()
+        params.efSearch = max(int(ef), k)
+        return params
+
     def _ann_search(self, q: np.ndarray, k: int, mask: np.ndarray | None,
                     ef: int) -> tuple[np.ndarray, np.ndarray]:
-        if self.ann_kind == "hnsw":
-            params = faiss.SearchParametersHNSW()
-            params.efSearch = max(int(ef), k)
+        if mask is None:
+            # Unfiltered searches share one immutable parameters object per search width.
+            width = max(int(ef), k)
+            params = self._search_params.get(width)
+            if params is None:
+                params = self._search_params[width] = self._make_params(width, k)
         else:
-            params = faiss.SearchParameters()
+            params = self._make_params(ef, k)
         bits = None
         if mask is not None:
             bits = np.packbits(mask, bitorder="little")    # bit i == label i; kept alive below
