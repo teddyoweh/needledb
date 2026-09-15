@@ -89,8 +89,13 @@ res = index.query(
       <>
         <Steps>
           <Step title="Install NeedleDB">
-            <p>From a checkout of the repository, with Python 3.11 to 3.13:</p>
-            <CodeBlock lang="bash" title="Terminal" code={`pip install -e .`} />
+            <p>With Python 3.11 to 3.14. FAISS, the server, the web app and the SDK all come with it.</p>
+            <CodeTabs tabs={[
+              { label: "pip", lang: "bash", code: `pip install needledb` },
+              { label: "uv", lang: "bash", code: `uv pip install needledb` },
+              { label: "From source", lang: "bash", code: `git clone https://github.com/teddyoweh/needledb
+cd needledb && pip install -e .     # builds the web app if Node.js 20.19+ is installed` },
+            ]} />
           </Step>
           <Step title="Start the server">
             <p>The server needs an admin key. Generate one and keep it somewhere safe.</p>

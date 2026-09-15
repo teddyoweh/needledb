@@ -36,7 +36,7 @@ export const SDK: DocPage[] = [
     render: () => (
       <>
         <H2 id="install">Install</H2>
-        <CodeBlock lang="bash" title="Terminal" code={`pip install -e .        # from a checkout, Python 3.11–3.13`} />
+        <CodeBlock lang="bash" title="Terminal" code={`pip install needledb        # Python 3.11–3.14`} />
 
         <H2 id="clients">Choose a client</H2>
         <CardGroup>

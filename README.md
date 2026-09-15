@@ -31,11 +31,14 @@ directly in your Python process with no server at all.
 ## Quickstart
 
 ```bash
-pip install -e .                      # Python 3.11–3.13
+pip install needledb                  # Python 3.11–3.14
 export NEEDLEDB_API_KEY=$(openssl rand -hex 32)   # an admin key — keep it secret
 needledb serve
 # App http://127.0.0.1:8080/app/ · API http://127.0.0.1:8080 · docs /docs (sign in first)
 ```
+
+From source, `git clone https://github.com/teddyoweh/needledb && pip install -e ./needledb` builds the web app
+too when Node.js 20.19+ is installed; without Node the API still works.
 
 Or with Docker:
 
@@ -232,6 +235,8 @@ uv venv && uv pip install -e ".[dev,bench]"
 pytest                                   # engine, filters (property-tested), API, both SDKs, Pinecone client
 npm --prefix ui install && npm --prefix ui run dev     # web app on :5173/app/, proxied to :8080
 npm --prefix ui run build                # outputs to needledb/server/static
+scripts/release.sh                       # build sdist + wheel, install into a clean venv, smoke-test
+scripts/release.sh --publish             # ...then upload to PyPI (UV_PUBLISH_TOKEN)
 ```
 
 ## Limits and roadmap

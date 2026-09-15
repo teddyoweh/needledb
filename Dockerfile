@@ -14,7 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     NEEDLEDB_HOST=0.0.0.0 \
     NEEDLEDB_PORT=8080
 WORKDIR /app
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md hatch_build.py ./
 COPY needledb ./needledb
 COPY --from=ui /static ./needledb/server/static
 RUN pip install --no-cache-dir . \
