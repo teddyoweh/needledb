@@ -1,4 +1,4 @@
-"""How much CPU this process may actually use, and telling FAISS about it.
+"""How much CPU this process may actually use, and giving memory back when done with it.
 
 Inside a container the machine's core count is a lie: cgroups cap how much CPU the
 process gets, but FAISS (through OpenMP) and thread pools still size themselves to the
@@ -57,3 +57,28 @@ def tune_threads(budget: int | None = None) -> int:
     except (ImportError, AttributeError):  # pragma: no cover — faiss always provides it
         pass
     return budget
+
+
+_libc = None
+
+
+def release_free_memory() -> None:
+    """Hand freed heap back to the OS (glibc only).
+
+    Swapping a large index's storage frees hundreds of megabytes at once, and the allocator
+    holds that in its arenas: harmless for the process, but it counts against a container's
+    memory limit and shows up in every memory report.
+    """
+    global _libc
+    if _libc is False:
+        return
+    if os.name != "posix" or not Path("/proc/self/status").exists():
+        return                                              # macOS and friends: nothing to do
+    try:
+        if _libc is None:
+            import ctypes
+
+            _libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        _libc.malloc_trim(0)
+    except (OSError, AttributeError):
+        _libc = False

@@ -38,6 +38,7 @@ from .config import (
     InvalidArgument,
     NotFound,
 )
+from .cpu import release_free_memory
 from .filters import MetadataIndex
 from .rwlock import RWLock
 
@@ -269,6 +270,7 @@ class Collection:
         self._storage = faiss.downcast_index(ann.storage)
         self._half = half
         self._search_params = {}
+        release_free_memory()          # the old storage was hundreds of MB; give it back
 
     def compact_storage(self, quiet_for: float = 0.0) -> None:
         """Serve from fp16 once a load has settled. Safe to call at any time.
