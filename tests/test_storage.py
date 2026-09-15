@@ -1,5 +1,11 @@
-"""Graph indexes serve from fp16 vectors: half the memory, the same results."""
+"""Graph indexes serve from fp16 vectors: half the memory, the same results.
+
+Storage settles when writing stops — `wait_for_index()` forces that point — so a bulk load
+never pays for compacting vectors it is about to add to.
+"""
 from __future__ import annotations
+
+import time
 
 import numpy as np
 import pytest
@@ -30,7 +36,7 @@ def test_fp16_is_the_default_and_keeps_results(loaded):
     float32_memory = index.summary()["memoryBytes"]
     top = [m["id"] for m in index.query(vector=vectors[7], top_k=10)["matches"]]
 
-    index.snapshot()                                        # settles: graph moves onto fp16
+    index.wait_for_index()                                  # settles: graph moves onto fp16
     assert index.summary()["storage"] == "fp16"
     assert float32_memory - index.summary()["memoryBytes"] == pytest.approx(N * D * 2, rel=0.01)
 
@@ -45,7 +51,7 @@ def test_fp16_is_the_default_and_keeps_results(loaded):
 
 def test_filters_and_writes_survive_the_switch(loaded):
     index, vectors = loaded()
-    index.snapshot()
+    index.wait_for_index()
     assert index.summary()["storage"] == "fp16"
 
     narrow = index.query(vector=vectors[3], top_k=5, filter={"half": True}, include_metadata=True)
@@ -60,13 +66,14 @@ def test_filters_and_writes_survive_the_switch(loaded):
     big = clustered(2_500, D, seed=4)                        # a big load links on float32 again
     index.upsert([{"id": f"b{i}", "values": v} for i, v in enumerate(big)])
     assert index.summary()["storage"] == "float32"
-    index.snapshot()
+    index.wait_for_index()
     assert index.summary()["storage"] == "fp16"
     assert index.query(vector=big[9], top_k=1)["matches"][0]["id"] == "b9"
 
 
 def test_snapshots_reload_as_fp16(tmp_path, registry, loaded):
     index, vectors = loaded()
+    index.wait_for_index()
     index.snapshot()
     expected = [m["id"] for m in index.query(vector=vectors[5], top_k=10)["matches"]]
     registry.close()
@@ -82,6 +89,18 @@ def test_snapshots_reload_as_fp16(tmp_path, registry, loaded):
 
 def test_float32_storage_can_be_asked_for(loaded):
     index, vectors = loaded(name="exact-values", storage="float32")
-    index.snapshot()
+    index.wait_for_index()
     assert index.summary()["storage"] == "float32"
     assert index.fetch(["11"])["vectors"]["11"]["values"] == pytest.approx(vectors[11].tolist(), rel=1e-6)
+
+
+def test_storage_settles_after_a_quiet_moment(loaded, monkeypatch):
+    from needledb.core import index as index_module
+
+    monkeypatch.setattr(index_module, "SETTLE_SECONDS", 0.2)
+    index, _ = loaded(name="settling")
+    assert index.summary()["storage"] == "float32"      # mid-load: still linking on float32
+    deadline = time.monotonic() + 5
+    while index.summary()["storage"] != "fp16" and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert index.summary()["storage"] == "fp16"

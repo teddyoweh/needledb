@@ -459,7 +459,7 @@ const NEXT_STEPS: Record<string, string> = {
   p50: "The same front-end work, since most of a query's time outside FAISS is request handling.",
   p99: "Pin search threads and keep FAISS's thread pool from oversubscribing cores under load.",
   build: "Parallel graph construction during bulk loads, and a streaming binary upsert that skips JSON.",
-  memory: "Quantized indexes (SQ8, then PQ) for 4–8× less vector memory are next on the roadmap.",
+  memory: "Vectors already serve from fp16; int8 and product quantization, for another 2–4×, are next on the roadmap.",
 };
 
 function Tabs<T extends string | number>({ label, value, options, onChange }: {
@@ -595,6 +595,8 @@ export function BenchmarksPage() {
         <li><b>Latency.</b> One client, sequential, measured end to end: in-process calls for embedded engines, a real network round trip for servers.</li>
         <li><b>Concurrency.</b> {set.clients} clients for 10 seconds. Networked systems get one client process per connection; in-process engines use threads.</li>
         <li><b>Wire formats.</b> Qdrant over gRPC, Postgres over its binary protocol with prepared statements, NeedleDB over HTTP with base64 float32 vectors.</li>
+        <li><b>Vector storage.</b> NeedleDB serves graph indexes from fp16 vectors, its default; recall is measured against exact float32 ground truth either way. pgvector stores <C>halfvec</C> at 3,072 dimensions and <C>vector</C> at 1,536; Qdrant keeps float32.</li>
+        <li><b>Threads.</b> Every server gets the same 8 CPUs. NeedleDB sizes its search pool to the container's CPU quota rather than the host's cores, so it never runs more searches at once than the VM will schedule.</li>
         <li><b>pgvector at 3,072 dimensions</b> uses <C>halfvec</C> (float16), because its <C>vector</C> type indexes at most 2,000 dimensions.</li>
         <li><b>One machine, one run.</b> Differences under 10% are shown as “on par”. Runs shared the machine with unrelated CPU-heavy jobs, so absolute numbers are conservative; every system ran under the same conditions.</li>
       </ul>

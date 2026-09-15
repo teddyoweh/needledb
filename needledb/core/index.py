@@ -35,6 +35,9 @@ from .filters import validate_metadata
 from .storage import Storage
 
 SNAPSHOT_EVERY = int(os.environ.get("NEEDLEDB_SNAPSHOT_EVERY", "50000"))
+# Seconds of write quiet before a loaded index moves its vectors onto fp16 storage. Mid-load
+# compaction would only be undone by the next batch, so it waits for the load to finish.
+SETTLE_SECONDS = float(os.environ.get("NEEDLEDB_SETTLE_SECONDS", "3"))
 
 
 def decode_vector(value, dimension: int):
@@ -61,6 +64,7 @@ class Index:
         self._ns_lock = threading.Lock()
         self._writes_since_snapshot = 0
         self._snapshot_lock = threading.Lock()
+        self._settle: threading.Timer | None = None
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -98,6 +102,8 @@ class Index:
         self.save_config()
 
     def close(self, snapshot: bool = True) -> None:
+        if self._settle is not None:
+            self._settle.cancel()
         if snapshot:
             self.snapshot()
         self.storage.close()
@@ -426,6 +432,7 @@ class Index:
         }
 
     def wait_for_index(self, timeout: float | None = None) -> None:
+        """Wait for background builds, then settle storage — what a finished load looks like."""
         for coll in list(self.collections.values()):
             coll.wait_for_index(timeout)
             coll.compact_storage()
@@ -438,6 +445,23 @@ class Index:
             self._writes_since_snapshot = 0
             threading.Thread(target=self.snapshot, name=f"snapshot-{self.cfg.name}",
                              daemon=True).start()
+        self._settle_later()
+
+    def _settle_later(self) -> None:
+        """Restart the quiet-period timer that compacts storage once writing stops."""
+        if SETTLE_SECONDS <= 0:
+            return
+        if self._settle is not None:
+            self._settle.cancel()
+        self._settle = threading.Timer(SETTLE_SECONDS, self._settle_now)
+        self._settle.name = f"settle-{self.cfg.name}"
+        self._settle.daemon = True
+        self._settle.start()
+
+    def _settle_now(self) -> None:
+        for coll in list(self.collections.values()):
+            if not coll.building:
+                coll.compact_storage()
 
     def snapshot(self) -> None:
         """Snapshot every namespace, then purge delete markers all snapshots cover."""
@@ -447,7 +471,6 @@ class Index:
             seqs = []
             for ns, coll in list(self.collections.items()):
                 coll.wait_for_index()
-                coll.compact_storage()          # snapshot the small form, and serve from it
                 with coll.lock.read():
                     if self.collections.get(ns) is not coll:
                         continue                      # dropped by deleteAll meanwhile
