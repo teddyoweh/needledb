@@ -1,5 +1,33 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { IndexInfo, Metadata, Role } from "./api";
+import type { AuditEvent, IndexInfo, Metadata, Role } from "./api";
+
+/** Fixed categorical colours; an index keeps the same one everywhere. */
+export const PALETTE = ["#2f6bff", "#12a189", "#f08a24", "#8b5cf6", "#e5487d", "#0ea5e9", "#65a30d"];
+
+export function colorFor(name: string) {
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return PALETTE[hash % PALETTE.length];
+}
+
+export function describeEvent(e: AuditEvent): string {
+  const who = e.actorName ?? "Someone";
+  const target = e.target ? `“${e.target}”` : "";
+  switch (e.action) {
+    case "auth.signed_in": return `${who} signed in`;
+    case "auth.signed_out": return `${who} signed out`;
+    case "auth.sign_in_failed": return "Failed sign-in attempt";
+    case "auth.key_rejected": return "Request rejected: invalid API key";
+    case "auth.blocked": return `Blocked ${e.ip ?? "a client"} after repeated failures`;
+    case "auth.sessions_revoked": return `${who} ended every session`;
+    case "key.created": return `${who} created ${e.detail?.role ? `${String(e.detail.role)} ` : ""}key ${target}`;
+    case "key.revoked": return `${who} revoked key ${target}`;
+    case "index.created": return `${who} created index ${target}`;
+    case "index.deleted": return `${who} deleted index ${target}`;
+    case "index.configured": return `${who} set ${target} search width to ${String(e.detail?.ef_search ?? "")}`;
+    default: return e.action;
+  }
+}
 
 function subscribeHash(onChange: () => void) {
   window.addEventListener("hashchange", onChange);

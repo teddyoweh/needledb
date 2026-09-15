@@ -72,7 +72,7 @@ export default function UpsertPanel({ info, namespaces, onDone }: { info: IndexI
   }
 
   return (
-    <Card title="Upsert records" subtitle="New ids are inserted and existing ids replaced. Writes are durable before they're acknowledged."
+    <Card icon={<IconUpload size={16} />} title="Upsert records" subtitle="New ids are inserted and existing ids replaced. Writes are durable before they're acknowledged."
       actions={<Button size="sm" onClick={() => setText(example(info.dimension))}>Insert example</Button>}>
       <div className="form">
         <Field label="Records" htmlFor="u-records"
@@ -84,7 +84,7 @@ export default function UpsertPanel({ info, namespaces, onDone }: { info: IndexI
         </Field>
         <div className="form-row">
           <Field label="Namespace" htmlFor="u-ns" hint="Pick one or type a new name.">
-            <input id="u-ns" className="mono" list="u-ns-list" value={namespace} placeholder="Default namespace" onChange={(e) => setNamespace(e.target.value)} />
+            <input id="u-ns" list="u-ns-list" value={namespace} placeholder="Default namespace" onChange={(e) => setNamespace(e.target.value)} />
             <datalist id="u-ns-list">{namespaces.filter(Boolean).map((ns) => <option key={ns} value={ns} />)}</datalist>
           </Field>
         </div>

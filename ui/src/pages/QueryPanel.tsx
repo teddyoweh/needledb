@@ -112,7 +112,7 @@ export default function QueryPanel({ info, namespaces, params, active }: {
 
   return (
     <div className="split">
-      <Card title="Search">
+      <Card icon={<IconSearch size={16} />} title="Search">
         <form className="form" onSubmit={submit} onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void run();
         }}>
@@ -123,7 +123,7 @@ export default function QueryPanel({ info, namespaces, params, active }: {
 
           {mode === "id" ? (
             <Field label="Record id" htmlFor="q-id" hint="Returns the records closest to this one.">
-              <input id="q-id" className="mono" value={recordId} placeholder="doc-42" autoComplete="off" onChange={(e) => setRecordId(e.target.value)} />
+              <input id="q-id" value={recordId} placeholder="doc-42" autoComplete="off" onChange={(e) => setRecordId(e.target.value)} />
             </Field>
           ) : (
             <Field label="Vector" htmlFor="q-vector"
@@ -171,7 +171,7 @@ export default function QueryPanel({ info, namespaces, params, active }: {
       </Card>
 
       <div className="stack">
-        <Card title={result ? `${result.matches.length} ${result.matches.length === 1 ? "result" : "results"}` : "Results"}
+        <Card icon={<IconTarget size={16} />} title={result ? `${result.matches.length} ${result.matches.length === 1 ? "result" : "results"}` : "Results"}
           actions={result && (
             <div className="meta-pills">
               <span className="meta-pill" title="Measured on the server"><IconBolt size={14} />{fmtMs(result.usage.latencyMs)}</span>
@@ -196,7 +196,7 @@ export default function QueryPanel({ info, namespaces, params, active }: {
                       <div className="result-title">{title ? title.text : <span className="mono">{m.id}</span>}</div>
                       <div className="result-sub">
                         {title && <span className="mono result-id">{m.id}</span>}
-                        {includeMetadata && <MetadataChips metadata={m.metadata} omit={title ? [title.field] : []} limit={3} />}
+                        {includeMetadata && <MetadataChips metadata={m.metadata} omit={title ? [title.field] : []} limit={2} />}
                       </div>
                     </div>
                     <div className="result-score">
@@ -216,7 +216,7 @@ export default function QueryPanel({ info, namespaces, params, active }: {
         </Card>
 
         {lastBody && (
-          <Card title="Request" subtitle={`POST /indexes/${info.name}/query`} actions={<CopyButton text={curl} label="Copy as cURL" />}>
+          <Card icon={<IconBolt size={16} />} title="Request" subtitle={`POST /indexes/${info.name}/query`} actions={<CopyButton text={curl} label="Copy as cURL" />}>
             <pre className="code">{JSON.stringify(lastBody, (k, v) => (k === "vector" && Array.isArray(v) ? `[${v.length} numbers]` : v), 2)}</pre>
           </Card>
         )}

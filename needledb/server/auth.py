@@ -324,7 +324,8 @@ class Lockout:
             return 0
         return int(remaining) + 1
 
-    def failed(self, client: str) -> None:
+    def failed(self, client: str) -> bool:
+        """Count a failure; returns True when this failure blocks the client."""
         now = time.monotonic()
         if len(self._failures) > 50_000:
             self._failures.clear()
@@ -335,6 +336,8 @@ class Lockout:
         if len(attempts) >= self.max_failures:
             self._blocked[client] = now + self.block_s
             attempts.clear()
+            return True
+        return False
 
     def succeeded(self, client: str) -> None:
         self._failures.pop(client, None)

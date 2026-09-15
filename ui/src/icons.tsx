@@ -47,6 +47,15 @@ export const IconEye = icon(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 1
 export const IconEyeOff = icon(<><path d="M3 3l18 18" /><path d="M10.6 5.6A10 10 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.9 3.7M6.3 6.9A16.5 16.5 0 0 0 2.5 12S6 18.5 12 18.5a9.5 9.5 0 0 0 4.3-1" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></>);
 export const IconReturn = icon(<><path d="M20 5v6a3 3 0 0 1-3 3H5" /><path d="m9 10-4 4 4 4" /></>);
 
+export const IconChevronsUpDown = icon(<path d="m7 15 5 5 5-5M7 9l5-5 5 5" />);
+export const IconHome = icon(<><path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6h-6v6H5.5A1.5 1.5 0 0 1 4 19v-8.5Z" /></>);
+export const IconLogIn = icon(<><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" /><path d="m14 16 4-4-4-4" /><path d="M18 12H8" /></>);
+export const IconTrendUp = icon(<><path d="m4 16 5-5 4 4 7-7" /><path d="M15 8h5v5" /></>);
+export const IconTrendDown = icon(<><path d="m4 8 5 5 4-4 7 7" /><path d="M15 16h5v-5" /></>);
+export const IconAlert = icon(<><path d="M10.3 4.2 2.9 17a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0Z" /><path d="M12 9.5v4M12 17h.01" /></>);
+export const IconServer = icon(<><rect x="3.5" y="4" width="17" height="7" rx="2" /><rect x="3.5" y="13" width="17" height="7" rx="2" /><path d="M7.5 7.5h.01M7.5 16.5h.01" strokeWidth={2.5} /></>);
+export const IconGrid = icon(<><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></>);
+
 /** The app mark: a needle threading one point out of many. */
 export function BrandMark({ size = 28 }: { size?: number }) {
   return (

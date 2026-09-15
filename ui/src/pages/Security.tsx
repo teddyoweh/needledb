@@ -1,16 +1,20 @@
 import { type ReactNode, useState } from "react";
-import { api } from "../api";
-import { IconCheck, IconCookie, IconGauge, IconGlobe, IconKey, IconLock, IconLogOut, IconShield, IconUpload } from "../icons";
-import { ROLE_LABEL, fmtBytes, fmtRelative } from "../lib";
+import { api, type AuditEvent } from "../api";
+import { IconActivity, IconCheck, IconCookie, IconGauge, IconGlobe, IconKey, IconLock, IconLogOut, IconShield, IconUpload } from "../icons";
+import { ROLE_LABEL, describeEvent, fmtBytes, fmtRelative, usePoll } from "../lib";
 import { useSession } from "../session";
-import { Avatar, Badge, Button, Card, PageHeader, useToast } from "../ui";
+import { Avatar, Badge, Button, Card, PageHeader, PropertyList, Segmented, Skeleton, useToast } from "../ui";
+import { eventIcon } from "./Activity";
 
 type Check = { icon: ReactNode; title: string; detail: ReactNode; ok: boolean; status: string };
 
 export default function Security() {
   const { me, can, signOut } = useSession();
+  const admin = can("admin");
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
+  const [only, setOnly] = useState<"all" | "failures">("all");
+  const events = usePoll(() => (admin ? api.events(100) : Promise.resolve({ events: [] as AuditEvent[] })), 10000, [admin]);
   const s = me.security;
   const principal = me.principal;
   const local = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
@@ -34,11 +38,11 @@ export default function Security() {
     },
     {
       icon: <IconKey size={18} />, title: "Key storage", ok: true, status: "Hashed",
-      detail: `${s.environmentKeys} environment ${s.environmentKeys === 1 ? "key" : "keys"} and ${s.managedKeys} managed ${s.managedKeys === 1 ? "key" : "keys"}. Only SHA-256 digests are kept; a key is shown once, when it's created.`,
+      detail: `${s.environmentKeys} environment and ${s.managedKeys} managed ${s.managedKeys === 1 ? "key" : "keys"}. Only SHA-256 digests are kept; a key is shown once, when it's created.`,
     },
     {
       icon: <IconCookie size={18} />, title: "Sessions", ok: true, status: `${s.sessionHours} h`,
-      detail: `Signed, HttpOnly, SameSite=Strict${s.secureCookies ? ", Secure" : ""} cookies that name the key, never contain it. Cross-site writes are refused, and revoking a key ends its sessions.`,
+      detail: `Signed, HttpOnly, SameSite=Strict${s.secureCookies ? ", Secure" : ""} cookies that name the key, never contain it. Cross-site writes are refused.`,
     },
     {
       icon: <IconShield size={18} />, title: "Brute-force protection", ok: true, status: `${s.lockout.maxFailures} tries`,
@@ -50,11 +54,12 @@ export default function Security() {
     },
     {
       icon: <IconUpload size={18} />, title: "Request size limit", ok: true, status: fmtBytes(s.maxBodyBytes),
-      detail: `Larger bodies are rejected before they're read.${s.trustProxy ? " Client addresses come from your proxy's X-Forwarded-For." : ""}`,
+      detail: `Larger bodies are rejected before they're read.${s.trustProxy ? " Client addresses come from your proxy." : ""}`,
     },
   ] : [];
-
   const passing = checks.filter((c) => c.ok).length;
+  const log = (events.data?.events ?? []).filter((e) => only === "all" || !e.ok);
+  const failures = (events.data?.events ?? []).filter((e) => !e.ok).length;
 
   async function revokeEverywhere() {
     if (!confirming) {
@@ -63,7 +68,7 @@ export default function Security() {
     }
     try {
       await api.revokeAllSessions();
-      toast("Signed out every session");
+      toast("Ended every session");
       await signOut();
     } catch (err) {
       toast((err as Error).message, "bad");
@@ -73,56 +78,92 @@ export default function Security() {
   return (
     <>
       <PageHeader title="Security"
-        subtitle={checks.length ? `${passing} of ${checks.length} protections active on this connection.` : "How this server is protected."} />
+        subtitle={checks.length ? `${passing} of ${checks.length} protections active on this connection` : "How this server is protected"} />
 
-      <Card title="Protections" flush>
-        <ul className="checks">
-          {checks.map((c) => (
-            <li key={c.title} className="check-row">
-              <span className={`check-icon ${c.ok ? "" : "warn"}`}>{c.icon}</span>
-              <div>
-                <b>{c.title}</b>
-                <p>{c.detail}</p>
-              </div>
-              <Badge tone={c.ok ? "good" : "warn"} dot>{c.status}</Badge>
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      <div className="grid-2">
-        <Card title="Your access">
-          <div className="whoami">
-            <Avatar name={principal.name} size={48} />
-            <div>
-              <b>{principal.name}</b>
-              <span>{principal.source === "environment" ? "Environment key" : principal.source === "local" ? "Local access" : principal.id}</span>
-            </div>
-          </div>
-          <dl className="kv">
-            <dt>Access</dt><dd>{ROLE_LABEL[principal.role]}</dd>
-            <dt>Indexes</dt><dd>{principal.indexes ? principal.indexes.join(", ") : "All"}</dd>
-            <dt>Signed in with</dt><dd>{me.via === "session" ? "Browser session" : me.via === "key" ? "API key header" : "No authentication"}</dd>
-            {me.sessionExpiresAt && <><dt>Session ends</dt><dd>{fmtRelative(me.sessionExpiresAt)}</dd></>}
-          </dl>
-          {principal.source !== "local" && (
-            <div className="actions-end"><Button icon={<IconLogOut size={16} />} onClick={() => void signOut()}>Sign out</Button></div>
-          )}
+      <div className="grid-security">
+        <Card icon={<IconShield size={16} />} title="Protections" subtitle="Evaluated for the connection you're using now" flush>
+          <ul className="checks">
+            {checks.map((c) => (
+              <li key={c.title} className="check-row">
+                <span className={`check-icon ${c.ok ? "" : "warn"}`}>{c.icon}</span>
+                <div>
+                  <b>{c.title}</b>
+                  <p>{c.detail}</p>
+                </div>
+                <Badge tone={c.ok ? "good" : "warn"}>{c.status}</Badge>
+              </li>
+            ))}
+          </ul>
         </Card>
 
-        {can("admin") && me.authRequired && (
-          <Card title="Sign out everywhere" subtitle="Rotates the session secret. Every browser, including this one, has to sign in again. API keys keep working.">
-            <div className="actions-end">
-              <Button variant={confirming ? "danger-solid" : "danger"} icon={<IconCheck size={16} />}
-                onMouseLeave={() => setConfirming(false)} onClick={() => void revokeEverywhere()}>
-                {confirming ? "Confirm — end all sessions" : "End all sessions"}
-              </Button>
+        <div className="stack">
+          <Card icon={<IconLock size={16} />} title="Your access">
+            <div className="whoami">
+              <Avatar name={principal.name} size={44} />
+              <div>
+                <b>{principal.name}</b>
+                <span>{principal.source === "environment" ? "Environment key" : principal.source === "local" ? "No key · localhost only" : principal.id}</span>
+              </div>
             </div>
+            <PropertyList items={[
+              { icon: <IconKey size={15} />, label: "Access", value: ROLE_LABEL[principal.role] },
+              { icon: <IconShield size={15} />, label: "Indexes", value: principal.indexes ? principal.indexes.join(", ") : "All" },
+              { icon: <IconCookie size={15} />, label: "Signed in with", value: me.via === "session" ? "Browser session" : me.via === "key" ? "API key header" : "No authentication" },
+              ...(me.sessionExpiresAt ? [{ icon: <IconActivity size={15} />, label: "Session ends", value: fmtRelative(me.sessionExpiresAt) }] : []),
+            ]} />
+            {principal.source !== "local" && (
+              <div className="actions-end"><Button icon={<IconLogOut size={16} />} onClick={() => void signOut()}>Sign out</Button></div>
+            )}
           </Card>
-        )}
+
+          {admin && me.authRequired && (
+            <Card icon={<IconCheck size={16} />} title="Sign out everywhere"
+              subtitle="Rotates the session secret. Every browser, including this one, has to sign in again. API keys keep working.">
+              <div className="actions-end">
+                <Button variant={confirming ? "danger-solid" : "danger"} onMouseLeave={() => setConfirming(false)} onClick={() => void revokeEverywhere()}>
+                  {confirming ? "Confirm — end all sessions" : "End all sessions"}
+                </Button>
+              </div>
+            </Card>
+          )}
+        </div>
       </div>
 
-      <Card title="Deploying" subtitle="Run it behind TLS with a long random key. Nothing listens without auth except on localhost.">
+      {admin && (
+        <Card icon={<IconActivity size={16} />} title="Audit log"
+          subtitle={events.data ? `${events.data.events.length} most recent events · ${failures} ${failures === 1 ? "failure" : "failures"}` : "Loading…"} flush
+          actions={<Segmented label="Show" value={only} onChange={setOnly} options={[{ value: "all", label: "All events" }, { value: "failures", label: "Failures" }]} />}>
+          {!events.data ? (
+            <div className="stack tight pad">{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={40} radius={10} />)}</div>
+          ) : log.length === 0 ? (
+            <div className="table-empty">{only === "failures" ? "No failed attempts recorded." : "No events recorded yet."}</div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Event</th><th>Actor</th><th>Address</th><th>When</th><th>Result</th></tr></thead>
+                <tbody>
+                  {log.map((e) => (
+                    <tr key={e.id}>
+                      <td>
+                        <div className="entity">
+                          <span className={`feed-icon ${e.ok ? "" : "bad"}`}>{eventIcon(e)}</span>
+                          <div><b>{describeEvent(e)}</b><span>{e.action}</span></div>
+                        </div>
+                      </td>
+                      <td>{e.actorName ?? <span className="muted">Anonymous</span>}</td>
+                      <td className="muted">{e.ip ?? "—"}</td>
+                      <td className="muted" title={new Date(e.ts * 1000).toLocaleString()}>{fmtRelative(e.ts)}</td>
+                      <td><Badge tone={e.ok ? "good" : "bad"}>{e.ok ? "Success" : "Failed"}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Card icon={<IconGlobe size={16} />} title="Deploying" subtitle="Run it behind TLS with a long random key. Nothing listens without auth except on localhost.">
         <div className="grid-2 tight">
           <div>
             <div className="code-label">Caddyfile</div>

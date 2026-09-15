@@ -134,6 +134,29 @@ def test_security_headers_and_body_limit(tmp_path):
     app.state.registry.close()
 
 
+def test_audit_log_records_security_events(client, app, anon):
+    anon.post("/auth/login", json={"apiKey": "wrong"})
+    anon.get("/indexes", headers={"Api-Key": "also-wrong"})
+    info = client.post("/keys", json={"name": "ci", "role": "read"}).json()
+    client.delete(f"/keys/{info['id']}")
+    client.post("/indexes", json={"name": "logged", "dimension": 2})
+    TestClient(app).post("/auth/login", json={"apiKey": API_KEY})   # no lifespan: keeps the app open
+
+    events = client.get("/events", params={"limit": 20}).json()["events"]
+    actions = [e["action"] for e in events]
+    for expected in ("auth.sign_in_failed", "auth.key_rejected", "key.created", "key.revoked",
+                     "index.created", "auth.signed_in"):
+        assert expected in actions
+    assert actions.index("auth.signed_in") < actions.index("auth.sign_in_failed")   # newest first
+    created = next(e for e in events if e["action"] == "key.created")
+    assert created["target"] == "ci" and created["actorName"] == "Environment key" and created["ok"]
+    assert next(e for e in events if e["action"] == "auth.key_rejected")["ok"] is False
+    assert all("key" not in (e["detail"] or {}) for e in events)
+
+    reader = client.post("/keys", json={"name": "r", "role": "read"}).json()["key"]
+    assert anon.get("/events", headers={"Api-Key": reader}).status_code == 403
+
+
 def test_local_mode_needs_no_key(tmp_path):
     app = create_app(tmp_path / "local", api_keys=[], allow_no_auth=True)
     with TestClient(app) as c:

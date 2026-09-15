@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { api, type ApiKey, type IndexInfo, type Role } from "../api";
-import { IconCheck, IconKey, IconLock, IconPlus, IconTrash } from "../icons";
+import { IconCheck, IconKey, IconLock, IconPlus, IconSearch, IconTrash } from "../icons";
 import { ROLE_LABEL, fmtRelative, go, usePoll } from "../lib";
 import { Badge, Button, Card, Choice, CopyButton, Empty, ErrorNote, Field, PageHeader, Sheet, Skeleton, useToast } from "../ui";
 
@@ -15,6 +15,7 @@ export default function Keys({ openNew, indexes }: { openNew: boolean; indexes: 
   const { data, error, reload } = usePoll(api.keys, 20000);
   const [creating, setCreating] = useState(openNew);
   const [confirming, setConfirming] = useState<string>();
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (openNew) setCreating(true);
@@ -36,48 +37,77 @@ export default function Keys({ openNew, indexes }: { openNew: boolean; indexes: 
   }
 
   const keys = data?.keys ?? [];
+  const shown = keys.filter((k) => `${k.name} ${k.id} ${k.prefix ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const dayAgo = Date.now() / 1000 - 86400;
+  const summary = [
+    { label: "Active keys", value: keys.length, hint: `${keys.filter((k) => !k.managed).length} from the environment` },
+    { label: "Admin keys", value: keys.filter((k) => k.role === "admin").length, hint: "Full access" },
+    { label: "Scoped to indexes", value: keys.filter((k) => k.indexes).length, hint: "Limited blast radius" },
+    { label: "Used in the last day", value: keys.filter((k) => (k.lastUsedAt ?? 0) > dayAgo).length, hint: "Managed keys" },
+  ];
 
   return (
     <>
       <PageHeader title="API Keys"
-        subtitle="Keys authenticate the SDK, the Pinecone client and this app. Each is shown once, and only a hash is stored."
+        subtitle="Keys authenticate the SDK, the Pinecone client and this app. Each is shown once; only a hash is stored."
         actions={<Button variant="primary" icon={<IconPlus size={17} />} onClick={() => setCreating(true)}>Create key</Button>} />
 
+      <div className="mini-stats">
+        {summary.map((s) => (
+          <div key={s.label} className="mini-stat">
+            <span>{s.label}</span>
+            <b>{data ? s.value : "—"}</b>
+            <small>{s.hint}</small>
+          </div>
+        ))}
+      </div>
+
       {!data ? (
-        error ? <ErrorNote error={error} /> : <Skeleton height={260} radius={22} />
+        error ? <ErrorNote error={error} /> : <Skeleton height={260} radius={16} />
       ) : (
-        <Card flush>
+        <Card icon={<IconKey size={16} />} title="All keys" subtitle="Revoking a key takes effect immediately and signs out its sessions" flush
+          actions={keys.length > 0 && (
+            <div className="search-field">
+              <IconSearch size={15} />
+              <input aria-label="Search keys" placeholder="Search keys" value={query} onChange={(e) => setQuery(e.target.value)} />
+            </div>
+          )}>
           {keys.length === 0 ? (
-            <Empty icon={<IconKey size={22} />} title="No keys yet">Create a key for each app or teammate, so you can revoke one without touching the rest.</Empty>
+            <Empty icon={<IconKey size={22} />} title="No keys yet"
+              action={<Button variant="primary" icon={<IconPlus size={16} />} onClick={() => setCreating(true)}>Create a key</Button>}>
+              Create a key for each app or teammate, so you can revoke one without touching the rest.
+            </Empty>
           ) : (
             <div className="table-wrap">
-              <table className="table keys-table">
+              <table className="table">
                 <thead>
-                  <tr><th>Name</th><th>Key</th><th>Access</th><th>Indexes</th><th>Created</th><th>Last used</th><th /></tr>
+                  <tr><th>Name</th><th>Key</th><th>Access</th><th>Indexes</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr>
                 </thead>
                 <tbody>
-                  {keys.map((k) => (
+                  {shown.map((k) => (
                     <tr key={k.id} onMouseLeave={() => confirming === k.id && setConfirming(undefined)}>
                       <td>
-                        <div className="key-name">
+                        <div className="entity">
                           <span className={`key-glyph ${k.managed ? "" : "env"}`}>{k.managed ? <IconKey size={16} /> : <IconLock size={16} />}</span>
-                          <div><b>{k.name}</b><span className="muted mono small">{k.id}</span></div>
+                          <div><b>{k.name}</b><span>{k.id}</span></div>
                         </div>
                       </td>
-                      <td>{k.prefix ? <span className="mono">{k.prefix}…</span> : <span className="muted">NEEDLEDB_API_KEY</span>}</td>
-                      <td><Badge tone={k.role === "admin" ? "accent" : "neutral"}>{ROLE_LABEL[k.role]}</Badge></td>
-                      <td>{k.indexes ? <span className="mono small">{k.indexes.join(", ")}</span> : <span className="muted">All</span>}</td>
+                      <td>{k.prefix ? <span className="secret-prefix">{k.prefix}••••</span> : <span className="muted">NEEDLEDB_API_KEY</span>}</td>
+                      <td>{ROLE_LABEL[k.role]}</td>
+                      <td>{k.indexes ? k.indexes.join(", ") : <span className="muted">All</span>}</td>
                       <td className="muted">{k.managed ? fmtRelative(k.createdAt) : "—"}</td>
                       <td className="muted">{k.managed ? fmtRelative(k.lastUsedAt) : "—"}</td>
+                      <td>{k.managed ? <Badge tone="good">Active</Badge> : <Badge>Environment</Badge>}</td>
                       <td className="num">
-                        {k.managed ? (
+                        {k.managed && (
                           <Button size="sm" variant={confirming === k.id ? "danger-solid" : "danger"} icon={<IconTrash size={15} />} onClick={() => void revoke(k)}>
                             {confirming === k.id ? "Confirm" : "Revoke"}
                           </Button>
-                        ) : <span className="muted small">Set in environment</span>}
+                        )}
                       </td>
                     </tr>
                   ))}
+                  {shown.length === 0 && <tr><td colSpan={8} className="table-empty">No keys match “{query}”.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -148,7 +178,7 @@ function CreateKeySheet({ open, indexes, onClose, onCreated }: {
             <code>{created.key}</code>
             <CopyButton text={created.key} variant="primary" />
           </div>
-          <div className="note note-warn">Copy it now. For your security, NeedleDB stores only a hash — this key can't be shown again.</div>
+          <div className="note note-warn">Copy it now. NeedleDB stores only a hash — this key can't be shown again.</div>
           <pre className="code">{`export NEEDLEDB_API_KEY="${created.key}"\n\nfrom needledb import NeedleDB\ndb = NeedleDB("${window.location.origin}")`}</pre>
         </div>
       </Sheet>
@@ -192,7 +222,7 @@ function CreateKeySheet({ open, indexes, onClose, onCreated }: {
                     <label key={i.name} className="check">
                       <input type="checkbox" checked={chosen.includes(i.name)}
                         onChange={(e) => setChosen((c) => (e.target.checked ? [...c, i.name] : c.filter((x) => x !== i.name)))} />
-                      <span className="mono">{i.name}</span>
+                      <span>{i.name}</span>
                       <span className="muted small">{i.dimension}-d</span>
                     </label>
                   ))}

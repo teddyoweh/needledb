@@ -42,6 +42,18 @@ export type ApiKey = {
   managed: boolean;
 };
 
+export type AuditEvent = {
+  id: number;
+  ts: number;
+  action: string;
+  actorId: string | null;
+  actorName: string | null;
+  ip: string | null;
+  target: string | null;
+  ok: boolean;
+  detail: Record<string, unknown> | null;
+};
+
 export type IndexInfo = {
   name: string;
   dimension: number;
@@ -151,6 +163,7 @@ export const api = {
   keys: () => call<{ keys: ApiKey[] }>("GET", "/keys"),
   createKey: (body: { name: string; role: Role; indexes?: string[] }) => call<ApiKey & { key: string }>("POST", "/keys", body),
   revokeKey: (id: string) => call<object>("DELETE", `/keys/${seg(id)}`),
+  events: (limit = 50) => call<{ events: AuditEvent[] }>("GET", `/events?limit=${limit}`),
 
   stats: () => call<Stats>("GET", "/stats"),
   indexes: () => call<{ indexes: IndexInfo[] }>("GET", "/indexes"),

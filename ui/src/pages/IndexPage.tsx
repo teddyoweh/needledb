@@ -1,9 +1,38 @@
 import { useState } from "react";
 import { api, ApiError, type IndexInfo, type IndexStats } from "../api";
-import { IconChevronRight, IconChip, IconDisk, IconGauge, IconIndexes, IconTrash } from "../icons";
+import {
+  IconBook,
+  IconCheck,
+  IconChip,
+  IconClock,
+  IconDisk,
+  IconGauge,
+  IconGlobe,
+  IconIndexes,
+  IconRows,
+  IconSearch,
+  IconSliders,
+  IconTarget,
+  IconTrash,
+} from "../icons";
 import { fmtBytes, fmtInt, go, structureLabel, usePoll } from "../lib";
 import { useSession } from "../session";
-import { Badge, Button, Card, Choice, CopyButton, Empty, ErrorNote, Field, PageHeader, Skeleton, Stat, useToast } from "../ui";
+import {
+  Badge,
+  Button,
+  Card,
+  CopyButton,
+  Empty,
+  ErrorNote,
+  Field,
+  PageHeader,
+  PropertyList,
+  Segmented,
+  Skeleton,
+  Stat,
+  Tabs,
+  useToast,
+} from "../ui";
 import BrowsePanel from "./BrowsePanel";
 import QueryPanel from "./QueryPanel";
 import UpsertPanel from "./UpsertPanel";
@@ -17,22 +46,22 @@ export default function IndexPage({ name, tab, params, onChanged }: {
   const { can } = useSession();
   const info = usePoll(() => api.index(name), 3000, [name]);
   const stats = usePoll(() => api.describeStats(name), 3000, [name]);
+  const base = `#/indexes/${encodeURIComponent(name)}`;
 
   const tabs = [
-    ["overview", "Overview"],
-    ["query", "Query"],
-    ["browse", "Browse"],
-    ...(can("write") ? [["upsert", "Upsert"]] : []),
-    ...(can("admin") ? [["settings", "Settings"]] : []),
-  ] as [string, string][];
-  const current = tabs.some(([id]) => id === tab) ? tab : "overview";
-  const crumbs = <a href="#/indexes" className="crumb">Indexes <IconChevronRight size={13} /></a>;
+    { id: "overview", label: "Overview", href: `${base}/overview` },
+    { id: "query", label: "Query", href: `${base}/query` },
+    { id: "browse", label: "Browse", href: `${base}/browse` },
+    ...(can("write") ? [{ id: "upsert", label: "Upsert", href: `${base}/upsert` }] : []),
+    ...(can("admin") ? [{ id: "settings", label: "Settings", href: `${base}/settings` }] : []),
+  ];
+  const current = tabs.some((t) => t.id === tab) ? tab : "overview";
 
   if (!info.data) {
     const missing = info.error instanceof ApiError && info.error.status === 404;
     return (
       <>
-        <PageHeader eyebrow={crumbs} title={name} />
+        <PageHeader title={name} />
         {missing ? (
           <Card>
             <Empty icon={<IconIndexes size={24} />} title={`There's no index named “${name}”`}
@@ -40,33 +69,39 @@ export default function IndexPage({ name, tab, params, onChanged }: {
               It may have been deleted, or your key may not have access to it.
             </Empty>
           </Card>
-        ) : info.error ? <ErrorNote error={info.error} /> : <Skeleton height={320} radius={22} />}
+        ) : info.error ? <ErrorNote error={info.error} /> : <Skeleton height={320} radius={16} />}
       </>
     );
   }
 
   const index = info.data;
   const namespaces = Object.keys(stats.data?.namespaces ?? {});
+  const ready = index.status.state === "Ready";
   const refresh = () => {
     void info.reload();
     void stats.reload();
     onChanged();
   };
-  const ready = index.status.state === "Ready";
 
   return (
     <>
-      <PageHeader eyebrow={crumbs} title={index.name}
-        subtitle={<>{index.dimension} dimensions · {index.metric} · {structureLabel(index)}</>}
-        actions={<Badge tone={ready ? "good" : "warn"} dot>{ready ? "Ready" : "Rebuilding graph"}</Badge>}>
+      <PageHeader title={index.name}
+        subtitle={`${fmtInt(index.vectorCount)} vectors across ${index.namespaceCount} ${index.namespaceCount === 1 ? "namespace" : "namespaces"}`}
+        actions={<>
+          <CopyButton text={index.host} label="Copy host" size="md" />
+          <Button variant="primary" icon={<IconSearch size={16} />} onClick={() => go(`/indexes/${encodeURIComponent(name)}/query`)}>Query</Button>
+        </>}>
+        <PropertyList items={[
+          { icon: <IconCheck size={15} />, label: "Status", value: <Badge tone={ready ? "good" : "warn"} dot>{ready ? "Ready" : "Rebuilding graph"}</Badge> },
+          { icon: <IconTarget size={15} />, label: "Dimension", value: index.dimension },
+          { icon: <IconGauge size={15} />, label: "Metric", value: index.metric },
+          { icon: <IconIndexes size={15} />, label: "Structure", value: structureLabel(index) },
+          { icon: <IconSliders size={15} />, label: "Search width", value: `ef_search ${index.hnsw.ef_search}` },
+          { icon: <IconClock size={15} />, label: "Created", value: new Date(index.created_at).toLocaleDateString(undefined, { dateStyle: "medium" }) },
+        ]} />
       </PageHeader>
 
-      <nav className="tabs" aria-label="Index sections">
-        {tabs.map(([id, label]) => (
-          <a key={id} href={`#/indexes/${encodeURIComponent(name)}/${id}`} className={current === id ? "active" : ""}
-            aria-current={current === id ? "page" : undefined}>{label}</a>
-        ))}
-      </nav>
+      <Tabs label="Index sections" items={tabs} current={current} />
 
       {/* Panels stay mounted so a half-written query survives switching tabs. */}
       <div hidden={current !== "overview"} className="stack"><IndexOverview info={index} stats={stats.data} /></div>
@@ -110,60 +145,49 @@ res = index.query(vector=embedding, top_k=10, include_metadata=True)`,
   return (
     <>
       <div className="stats">
-        <Stat icon={<IconIndexes size={16} />} label="Vectors" value={fmtInt(info.vectorCount)}
+        <Stat icon={<IconIndexes size={15} />} label="Vectors" value={fmtInt(info.vectorCount)}
           hint={`${info.namespaceCount} ${info.namespaceCount === 1 ? "namespace" : "namespaces"}`} />
-        <Stat icon={<IconChip size={16} />} label="Memory" value={fmtBytes(info.memoryBytes)} hint="Vectors and graph links" />
-        <Stat icon={<IconDisk size={16} />} label="On disk" value={fmtBytes(info.storageBytes)} hint="Durable log and records" />
-        <Stat icon={<IconGauge size={16} />} label="Search width" value={info.hnsw.ef_search} hint="Default ef_search" />
+        <Stat icon={<IconChip size={15} />} label="Memory" value={fmtBytes(info.memoryBytes)} hint="Vectors and graph links" />
+        <Stat icon={<IconDisk size={15} />} label="On disk" value={fmtBytes(info.storageBytes)} hint="Durable log and records" />
+        <Stat icon={<IconGlobe size={15} />} label="Host" value={<span className="stat-host">{new URL(info.host).host}</span>} hint={`/indexes/${info.name}`} />
       </div>
 
       <div className="grid-2">
-        <Card title="Namespaces" subtitle="Partitions inside this index" flush>
+        <Card icon={<IconRows size={16} />} title="Namespaces" subtitle="Partitions inside this index" flush>
           {namespaces.length ? (
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Namespace</th><th className="num">Vectors</th><th>Structure</th><th className="num">Tombstones</th><th /></tr></thead>
+                <thead><tr><th>Namespace</th><th className="num">Vectors</th><th>Structure</th><th className="num">Tombstones</th><th>Status</th></tr></thead>
                 <tbody>
                   {namespaces.map(([ns, s]) => (
                     <tr key={ns}>
-                      <td>{ns === "" ? <span className="muted">Default</span> : <span className="mono">{ns}</span>}</td>
+                      <td>{ns === "" ? <span className="muted">Default</span> : <b>{ns}</b>}</td>
                       <td className="num">{fmtInt(s.vectorCount)}</td>
                       <td>{s.indexType === "hnsw" ? "HNSW graph" : "Flat, exact"}</td>
                       <td className="num">{fmtInt(s.tombstones)}</td>
-                      <td className="num">{s.building ? <Badge tone="warn" dot>Rebuilding</Badge> : <Badge tone="good" dot>Ready</Badge>}</td>
+                      <td>{s.building ? <Badge tone="warn">Rebuilding</Badge> : <Badge tone="good">Ready</Badge>}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <Empty title="No vectors yet">Namespaces appear as soon as you write to them.</Empty>
+            <Empty icon={<IconRows size={22} />} title="No vectors yet">Namespaces appear as soon as you write to them.</Empty>
           )}
         </Card>
 
-        <Card title="Configuration">
-          <dl className="kv">
-            <dt>Dimension</dt><dd>{info.dimension}</dd>
-            <dt>Metric</dt><dd>{info.metric}{info.metric === "euclidean" ? " — squared distance, lower is closer" : ""}</dd>
-            <dt>Structure</dt><dd>{info.index_type}</dd>
-            <dt>HNSW</dt><dd className="mono">m {info.hnsw.m} · ef_construction {info.hnsw.ef_construction} · ef_search {info.hnsw.ef_search}</dd>
-            <dt>Created</dt><dd>{new Date(info.created_at).toLocaleString()}</dd>
-            <dt>Host</dt><dd className="mono">{info.host}</dd>
-          </dl>
+        <Card icon={<IconBook size={16} />} title="Connect" subtitle="The NeedleDB SDK, the Pinecone client, or plain HTTP"
+          actions={<CopyButton text={snippets[lang]} />}>
+          <div className="stack tight">
+            <Segmented label="Language" value={lang} onChange={setLang} options={[
+              { value: "python", label: "NeedleDB SDK" },
+              { value: "pinecone", label: "Pinecone" },
+              { value: "curl", label: "cURL" },
+            ]} />
+            <pre className="code">{snippets[lang]}</pre>
+          </div>
         </Card>
       </div>
-
-      <Card title="Connect" subtitle="Use the NeedleDB SDK, the official Pinecone client, or plain HTTP."
-        actions={<CopyButton text={snippets[lang]} />}>
-        <div className="stack tight">
-          <Choice label="Language" value={lang} onChange={setLang} options={[
-            { value: "python", label: "NeedleDB SDK" },
-            { value: "pinecone", label: "Pinecone client" },
-            { value: "curl", label: "cURL" },
-          ]} />
-          <pre className="code">{snippets[lang]}</pre>
-        </div>
-      </Card>
     </>
   );
 }
@@ -203,7 +227,8 @@ function SettingsPanel({ info, onSaved, onDeleted }: { info: IndexInfo; onSaved:
 
   return (
     <>
-      <Card title="Search width" subtitle="How many graph candidates each query explores. Wider finds more of the true nearest neighbours and takes longer.">
+      <Card icon={<IconSliders size={16} />} title="Search width"
+        subtitle="How many graph candidates each query explores. Wider finds more of the true nearest neighbours and takes longer.">
         <div className="form narrow">
           <div className="range-row">
             <input type="range" min={8} max={1024} step={8} value={Math.min(ef, 1024)} aria-label="ef_search"
@@ -222,11 +247,11 @@ function SettingsPanel({ info, onSaved, onDeleted }: { info: IndexInfo; onSaved:
         </div>
       </Card>
 
-      <Card title="Delete index" className="card-danger"
+      <Card icon={<IconTrash size={16} />} title="Delete index" className="card-danger"
         subtitle={<>Removes every vector and namespace in <b>{info.name}</b> from disk. This can't be undone.</>}>
         <div className="form narrow">
           <Field label={`Type “${info.name}” to confirm`} htmlFor="confirm-delete">
-            <input id="confirm-delete" className="mono" value={confirm} autoComplete="off" onChange={(e) => setConfirm(e.target.value)} />
+            <input id="confirm-delete" value={confirm} autoComplete="off" onChange={(e) => setConfirm(e.target.value)} />
           </Field>
           <div className="actions-end">
             <Button variant="danger-solid" icon={<IconTrash size={16} />} disabled={confirm !== info.name || deleting} onClick={remove}>

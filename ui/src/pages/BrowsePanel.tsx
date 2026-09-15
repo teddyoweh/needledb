@@ -91,12 +91,12 @@ export default function BrowsePanel({ info, namespaces, active, onChanged }: {
 
   return (
     <div className="split">
-      <Card title="Records" subtitle={ids.length ? `${fmtInt(ids.length)}${next ? "+" : ""} shown, sorted by id` : undefined} flush>
+      <Card icon={<IconRows size={16} />} title="Records" subtitle={ids.length ? `${fmtInt(ids.length)}${next ? "+" : ""} shown, sorted by id` : undefined} flush>
         <form className="browse-filters" onSubmit={applyPrefix}>
           <NamespaceSelect id="b-ns" value={namespace} namespaces={namespaces} onChange={setNamespace} />
           <div className="input-icon">
             <IconSearch size={16} />
-            <input className="mono" aria-label="Id prefix" placeholder="Id prefix, then ↵" value={prefixInput} onChange={(e) => setPrefixInput(e.target.value)} />
+            <input aria-label="Id prefix" placeholder="Id prefix, then ↵" value={prefixInput} onChange={(e) => setPrefixInput(e.target.value)} />
           </div>
         </form>
         <ErrorNote error={error} />

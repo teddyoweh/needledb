@@ -169,6 +169,56 @@ export function Legend({ series }: { series: Pick<Series, "name" | "color">[] })
   );
 }
 
+/** A bar chart drawn in dots: each column is a time bucket, lit to its share of the peak. */
+export function DotMatrix({ values, columns = 24, rows = 8, color = "#12a189" }: {
+  values: (number | null)[];
+  columns?: number;
+  rows?: number;
+  color?: string;
+}) {
+  const buckets = Array.from({ length: columns }, (_, c) => {
+    if (!values.length) return null;
+    const start = Math.floor((c * values.length) / columns);
+    const end = Math.max(start + 1, Math.floor(((c + 1) * values.length) / columns));
+    const slice = values.slice(start, end).filter((v): v is number => v != null);
+    return slice.length ? slice.reduce((a, b) => a + b, 0) / slice.length : null;
+  });
+  const max = Math.max(0, ...buckets.map((b) => b ?? 0));
+  const size = 10;
+  const step = 14;
+  const width = columns * step - (step - size);
+  const height = rows * step - (step - size);
+  return (
+    <svg className="dotmatrix" viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Requests per second over time">
+      {buckets.map((b, c) => {
+        const level = b == null || max === 0 ? 0 : Math.max(b > 0 ? 1 : 0, Math.round((b / max) * rows));
+        return Array.from({ length: rows }, (_, r) => {
+          const on = r < level;
+          return (
+            <rect key={`${c}-${r}`} x={c * step} y={height - size - r * step} width={size} height={size} rx={2.5}
+              style={{ fill: on ? color : "#eceef1", opacity: on ? 0.3 + 0.7 * ((r + 1) / level) : 1 }} />
+          );
+        });
+      })}
+    </svg>
+  );
+}
+
+/** One horizontal bar split by share. */
+export function StackBar({ segments }: { segments: { label: string; value: number; color: string }[] }) {
+  const total = segments.reduce((a, s) => a + s.value, 0);
+  return (
+    <div className="stackbar" role="img"
+      aria-label={segments.map((s) => `${s.label} ${total ? Math.round((s.value / total) * 100) : 0}%`).join(", ")}>
+      {total === 0
+        ? <span className="stackbar-empty" />
+        : segments.filter((s) => s.value > 0).map((s) => (
+          <span key={s.label} title={s.label} style={{ flexGrow: s.value, background: s.color }} />
+        ))}
+    </div>
+  );
+}
+
 /** A tiny trend line for stat tiles and cards. */
 export function Sparkline({ values, color = "#0071e3", width = 88, height = 30 }: {
   values: (number | null)[];

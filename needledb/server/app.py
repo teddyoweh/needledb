@@ -36,6 +36,7 @@ from ..errors import (
     PermissionDenied,
     Unauthenticated,
 )
+from .audit import AuditLog
 from .auth import LOCAL, SESSION_COOKIE, SESSION_TTL_S, KeyStore, Lockout, Principal
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -99,9 +100,9 @@ def _cookie(headers: dict[bytes, bytes], name: str) -> str | None:
 class _Gate:
     """ASGI middleware: security headers, body cap, authentication, CSRF, metrics."""
 
-    def __init__(self, app, *, store: KeyStore, lockout: Lockout, auth_enabled: bool, metrics: Metrics,
-                 max_body: int, trust_proxy: bool):
-        self.app, self.store, self.lockout, self.metrics = app, store, lockout, metrics
+    def __init__(self, app, *, store: KeyStore, lockout: Lockout, audit: AuditLog, auth_enabled: bool,
+                 metrics: Metrics, max_body: int, trust_proxy: bool):
+        self.app, self.store, self.lockout, self.metrics, self.audit = app, store, lockout, metrics, audit
         self.auth_enabled, self.max_body, self.trust_proxy = auth_enabled, max_body, trust_proxy
 
     async def __call__(self, scope, receive, send):
@@ -139,7 +140,11 @@ class _Gate:
                                               {"Retry-After": str(wait)})
                 principal = self.store.authenticate(key.decode("latin-1").strip())
                 if principal is None:
-                    self.lockout.failed(ip)
+                    blocked = self.lockout.failed(ip)
+                    self.audit.record("auth.key_rejected", ip=ip, ok=False, detail={"path": path})
+                    if blocked:
+                        self.audit.record("auth.blocked", ip=ip, ok=False,
+                                          detail={"blockSeconds": int(self.lockout.block_s)})
                     return await self._refuse(scope, receive, send, 401, "UNAUTHENTICATED", "invalid API key")
                 self.lockout.succeeded(ip)
                 state.update(principal=principal, auth_via="key")
@@ -245,6 +250,7 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
         raise RuntimeError("no API key configured: set NEEDLEDB_API_KEY (or create one with "
                            "`needledb keys create`), or use --no-auth on localhost for development")
 
+    audit = AuditLog(data_dir / "_system")
     registry = Registry(data_dir)
     metrics = Metrics()
     lockout = Lockout()
@@ -256,13 +262,18 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
         yield
         await run(registry.close)
         store.close()
+        audit.close()
 
     app = FastAPI(title="NeedleDB", version=__version__, lifespan=lifespan, redoc_url=None)
     app.state.registry = registry
     app.state.metrics = metrics
     app.state.keys = store
-    app.add_middleware(_Gate, store=store, lockout=lockout, auth_enabled=auth_enabled, metrics=metrics,
-                       max_body=max_body, trust_proxy=trust_proxy)
+    app.state.audit = audit
+    app.add_middleware(_Gate, store=store, lockout=lockout, audit=audit, auth_enabled=auth_enabled,
+                       metrics=metrics, max_body=max_body, trust_proxy=trust_proxy)
+
+    def record(request: Request, action: str, target: str | None = None, detail: dict | None = None) -> None:
+        audit.record(action, actor=request.state.principal, ip=request.state.client_ip, target=target, detail=detail)
 
     # ---- errors ----------------------------------------------------------------------
 
@@ -362,9 +373,13 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
         key = body.get("apiKey", body.get("api_key"))
         principal = store.authenticate(key.strip()) if isinstance(key, str) else None
         if principal is None:
-            lockout.failed(ip)
+            blocked = lockout.failed(ip)
+            audit.record("auth.sign_in_failed", ip=ip, ok=False)
+            if blocked:
+                audit.record("auth.blocked", ip=ip, ok=False, detail={"blockSeconds": int(lockout.block_s)})
             raise Unauthenticated("that API key isn't valid")
         lockout.succeeded(ip)
+        audit.record("auth.signed_in", actor=principal, ip=ip)
         token, expires = store.issue_session(principal)
         request.state.auth_via = "session"
         response = _json(me(request, principal, expires))
@@ -375,6 +390,7 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     async def auth_logout(request: Request):
         if request.state.session:
             store.end_session(request.state.session)
+            record(request, "auth.signed_out")
         response = _json({})
         response.delete_cookie(SESSION_COOKIE, path="/")
         return response
@@ -383,6 +399,7 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
     async def revoke_sessions(request: Request):
         need(request, "admin")
         store.rotate_secret()
+        record(request, "auth.sessions_revoked")
         response = _json({})
         response.delete_cookie(SESSION_COOKIE, path="/")
         return response
@@ -397,13 +414,23 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
         need(request, "admin")
         body = _parse(await request.body())
         info, key = store.create_key(body.get("name"), body.get("role", "read"), body.get("indexes"))
+        record(request, "key.created", info["name"], {"id": info["id"], "role": info["role"], "indexes": info["indexes"]})
         return _json({**info, "key": key}, 201)
 
     @app.delete("/keys/{key_id}")
     async def revoke_key(key_id: str, request: Request):
         need(request, "admin")
+        name = next((k["name"] for k in store.list_keys() if k["id"] == key_id), key_id)
         store.revoke_key(key_id)
+        record(request, "key.revoked", name, {"id": key_id})
         return _json({})
+
+    @app.get("/events")
+    async def events(request: Request, limit: int = 50, before: int | None = None):
+        need(request, "admin")
+        if not 1 <= limit <= 500:
+            raise InvalidArgument("limit must be from 1 to 500")
+        return _json({"events": await run(audit.recent, limit, before)})
 
     # ---- ops -------------------------------------------------------------------------
 
@@ -470,6 +497,7 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
         except TypeError as exc:
             raise InvalidArgument(f"invalid index configuration: {exc}") from None
         index = await run(registry.create_index, cfg)
+        record(request, "index.created", cfg.name, {"dimension": cfg.dimension, "metric": cfg.metric})
         return _json(describe(index, request), 201)
 
     @app.get("/indexes/{name}")
@@ -486,12 +514,14 @@ def create_app(data_dir: str | Path | None = None, api_keys: list[str] | None = 
             raise InvalidArgument("only hnsw.ef_search can be changed on an existing index")
         ef = _opt(hnsw, "ef_search", "efSearch", default=_opt(body, "ef_search", "efSearch"))
         await run(index.configure, ef)
+        record(request, "index.configured", name, {"ef_search": ef})
         return _json(describe(index, request))
 
     @app.delete("/indexes/{name}")
     async def delete_index(name: str, request: Request):
         need(request, "admin", name)
         await run(registry.delete_index, name)
+        record(request, "index.deleted", name)
         return _json({}, 202)
 
     # ---- data plane ------------------------------------------------------------------

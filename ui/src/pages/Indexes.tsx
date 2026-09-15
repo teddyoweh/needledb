@@ -1,9 +1,9 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { api, type IndexInfo, type IndexType, type Metric } from "../api";
-import { IconIndexes, IconPlus } from "../icons";
-import { go } from "../lib";
+import { IconGrid, IconIndexes, IconPlus, IconRows, IconSearch } from "../icons";
+import { fmtBytes, fmtInt, go, structureLabel } from "../lib";
 import { useSession } from "../session";
-import { Button, Card, Choice, Empty, ErrorNote, Field, PageHeader, Sheet, Skeleton, useToast } from "../ui";
+import { Badge, Button, Card, Choice, Empty, ErrorNote, Field, IndexAvatar, PageHeader, Segmented, Sheet, Skeleton, useToast } from "../ui";
 import IndexCard from "./IndexCard";
 
 const NAME_RE = /^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$/;
@@ -31,6 +31,8 @@ export default function Indexes({ indexes, error, openNew, onChanged }: {
   const { can } = useSession();
   const admin = can("admin");
   const [creating, setCreating] = useState(openNew && admin);
+  const [view, setView] = useState<"table" | "cards">("table");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (openNew && admin) setCreating(true);
@@ -41,18 +43,32 @@ export default function Indexes({ indexes, error, openNew, onChanged }: {
     if (openNew) go("/indexes");
   }
 
+  const shown = (indexes ?? []).filter((i) => i.name.includes(query.trim().toLowerCase()));
+  const vectors = (indexes ?? []).reduce((a, i) => a + i.vectorCount, 0);
+
   return (
     <>
       <PageHeader
         title="Indexes"
-        subtitle="Each index holds vectors of one dimension and metric, split into as many namespaces as you need."
+        subtitle={indexes ? `${indexes.length} ${indexes.length === 1 ? "index" : "indexes"} · ${fmtInt(vectors)} vectors` : "Each index holds vectors of one dimension and metric."}
         actions={admin && <Button variant="primary" icon={<IconPlus size={17} />} onClick={() => setCreating(true)}>New index</Button>}
       />
 
+      {indexes && indexes.length > 0 && (
+        <div className="toolbar">
+          <div className="search-field wide">
+            <IconSearch size={16} />
+            <input aria-label="Search indexes" placeholder="Search indexes" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </div>
+          <Segmented label="View" value={view} onChange={setView} options={[
+            { value: "table", label: <><IconRows size={15} /> Table</> },
+            { value: "cards", label: <><IconGrid size={15} /> Cards</> },
+          ]} />
+        </div>
+      )}
+
       {!indexes ? (
-        error ? <ErrorNote error={error} /> : (
-          <div className="index-grid">{[0, 1, 2].map((i) => <Skeleton key={i} height={200} radius={22} />)}</div>
-        )
+        error ? <ErrorNote error={error} /> : <Skeleton height={280} radius={16} />
       ) : indexes.length === 0 ? (
         <Card>
           <Empty icon={<IconIndexes size={24} />} title="No indexes yet"
@@ -60,9 +76,39 @@ export default function Indexes({ indexes, error, openNew, onChanged }: {
             An index is where vectors live. Choose the dimension your embedding model produces — anything from 1 to 65,536.
           </Empty>
         </Card>
+      ) : view === "table" ? (
+        <Card flush>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr><th>Index</th><th className="num">Dimension</th><th>Metric</th><th>Structure</th><th className="num">Vectors</th><th className="num">Memory</th><th className="num">On disk</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {shown.map((i) => (
+                  <tr key={i.name} className="rowlink" onClick={() => go(`/indexes/${encodeURIComponent(i.name)}`)}>
+                    <td>
+                      <div className="entity">
+                        <IndexAvatar name={i.name} />
+                        <div><b>{i.name}</b><span>{i.namespaceCount} {i.namespaceCount === 1 ? "namespace" : "namespaces"}</span></div>
+                      </div>
+                    </td>
+                    <td className="num">{i.dimension}</td>
+                    <td>{i.metric}</td>
+                    <td>{structureLabel(i)}</td>
+                    <td className="num">{fmtInt(i.vectorCount)}</td>
+                    <td className="num">{fmtBytes(i.memoryBytes)}</td>
+                    <td className="num">{fmtBytes(i.storageBytes)}</td>
+                    <td><Badge tone={i.status.state === "Ready" ? "good" : "warn"}>{i.status.state === "Ready" ? "Ready" : "Rebuilding"}</Badge></td>
+                  </tr>
+                ))}
+                {shown.length === 0 && <tr><td colSpan={8} className="table-empty">No indexes match “{query}”.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       ) : (
         <div className="index-grid">
-          {indexes.map((i) => <IndexCard key={i.name} info={i} />)}
+          {shown.map((i) => <IndexCard key={i.name} info={i} />)}
           {admin && (
             <button type="button" className="index-card index-card-new" onClick={() => setCreating(true)}>
               <span className="new-plus"><IconPlus size={22} /></span>
@@ -136,7 +182,7 @@ function CreateIndexSheet({ open, onClose, onCreated }: { open: boolean; onClose
       <form id="create-index" className="form" onSubmit={submit}>
         <Field label="Name" htmlFor="ix-name"
           hint={name && !nameOk ? <span className="bad">Use 1–45 lowercase letters, digits and hyphens.</span> : "Lowercase letters, digits and hyphens. Used in the API path."}>
-          <input id="ix-name" className="mono" value={name} placeholder="products" autoFocus autoComplete="off"
+          <input id="ix-name" value={name} placeholder="products" autoFocus autoComplete="off"
             onChange={(e) => setName(e.target.value.toLowerCase().replace(/\s+/g, "-"))} />
         </Field>
 
