@@ -102,7 +102,8 @@ export default function IndexPage({ name, tab, params, onChanged }: {
         <Spec icon={<IconTarget size={15} />} label="Dimensions" value={fmtInt(index.dimension)} hint={index.embed ? `${METRIC_LABEL[index.metric]} · from the model` : METRIC_LABEL[index.metric]} />
         <Spec icon={<IconGauge size={15} />} label="Structure" value={graph ? "HNSW graph" : "Flat, exact"}
           hint={graph ? `m ${index.hnsw.m} · ef_search ${index.hnsw.ef_search}` : index.index_type === "auto" ? "HNSW from 20k vectors" : "100% recall"} />
-        <Spec icon={<IconChip size={15} />} label="Memory" value={fmtBytes(index.memoryBytes)} hint={`${fmtBytes(index.storageBytes)} on disk`} />
+        <Spec icon={<IconChip size={15} />} label="Memory" value={fmtBytes(index.memoryBytes)}
+          hint={index.storage === "fp16" ? `${fmtBytes(index.storageBytes)} on disk · half precision` : `${fmtBytes(index.storageBytes)} on disk`} />
         <Spec icon={<IconBolt size={15} />} label="Queries / s" value={(latest?.qps ?? 0).toFixed(1)}
           hint={`p99 ${fmtMs(latest?.p99)}`} spark={history.map((s) => s.qps)} />
       </div>

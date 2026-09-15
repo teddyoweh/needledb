@@ -17,6 +17,7 @@ const IDENTITY: Record<string, Identity> = {
   "qdrant-docker": { name: "Qdrant", color: "#dc244c", logo: "qdrant" },
   "pgvector-docker": { name: "pgvector", color: "#0d9488", logo: "postgresql" },
   "faiss-hnsw": { name: "Raw FAISS", color: "#c2670a", logo: "meta", dashed: true },
+  "faiss-hnsw-fp16": { name: "Raw FAISS", color: "#c2670a", logo: "meta", dashed: true },
   "numpy-exact": { name: "Brute force", color: "#7c5cd6", dashed: true },
 };
 
@@ -488,7 +489,8 @@ export function BenchmarksPage() {
   const by = Object.fromEntries(set.systems.map((s) => [s.key, s])) as Record<string, BenchSystem | undefined>;
   const ours = (mode === "docker" ? by["needledb-docker"] ?? by["needledb-server"] : by["needledb-server"] ?? by["needledb-docker"])!;
   const rivals = [by["qdrant-docker"], by["pgvector-docker"]].filter((s): s is BenchSystem => !!s);
-  const faiss = by["faiss-hnsw"];
+  // The library with the same fp16 storage NeedleDB uses, so the line compares engines.
+  const faiss = by["faiss-hnsw-fp16"] ?? by["faiss-hnsw"];
   const embedded = by["needledb-embedded"];
   const contenders = [ours, ...rivals];
   const withReference = faiss ? [...contenders, faiss] : contenders;
@@ -540,9 +542,11 @@ export function BenchmarksPage() {
         <>
           <H2 id="engine">The engine, in process</H2>
           <p>
-            Embedded in your Python process, NeedleDB adds a durable log, deletes, namespaces and metadata filtering on
-            top of FAISS — and still comes out ahead of the raw library at the same recall, because it serves fp16
-            vectors where FAISS's own defaults keep float32. The graph, the parameters and the search are the library's.
+            The graph, the parameters and the search are FAISS's. This compares the engine around them, against the
+            same library holding its vectors the same way NeedleDB does — so what's left is the cost of a durable
+            write log, deletes, namespaces, ids and metadata. On filtered queries that cost pays for itself: the bare
+            library drops to {Math.round(faiss.filtered["1%"].recall * 100)}% recall when a filter keeps 1% of the
+            corpus, where NeedleDB returns every true match.
           </p>
           <div className="h2h-grid">
             {metrics.filter((m) => m.id === "qps" || m.id === "concurrent").map((metric) => (

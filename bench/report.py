@@ -12,11 +12,11 @@ HERE = Path(__file__).parent
 RESULTS = HERE / "results"
 
 # Fixed order and colours (Okabe–Ito, colour-blind safe): a system keeps its colour in every chart.
-ORDER = ["needledb-embedded", "needledb-server", "needledb-docker", "faiss-hnsw", "qdrant-docker",
+ORDER = ["needledb-embedded", "needledb-server", "needledb-docker", "faiss-hnsw", "faiss-hnsw-fp16", "qdrant-docker",
          "pgvector-docker", "numpy-exact"]
 COLORS = {
     "needledb-embedded": "#0072B2", "needledb-server": "#56B4E9", "needledb-docker": "#009E73",
-    "faiss-hnsw": "#999999", "qdrant-docker": "#D55E00", "pgvector-docker": "#CC79A7", "numpy-exact": "#000000",
+    "faiss-hnsw": "#999999", "faiss-hnsw-fp16": "#777777", "qdrant-docker": "#D55E00", "pgvector-docker": "#CC79A7", "numpy-exact": "#000000",
 }
 
 

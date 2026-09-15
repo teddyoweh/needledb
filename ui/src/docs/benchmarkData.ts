@@ -38,14 +38,14 @@ export const BENCHMARKS: BenchmarkSet[] = [
     "clients": 16,
     "machine": "Apple M5 Pro \u00b7 15 cores \u00b7 24 GB RAM",
     "dockerVm": "15 CPUs \u00b7 7.7 GB",
-    "finishedAt": "2026-09-15T07:56:29+00:00",
+    "finishedAt": "2026-09-15T08:34:35+00:00",
     "versions": {
       "faiss": "1.15.0",
       "needledb": "0.1.0",
       "qdrant": "1.19.1",
       "pgvector": "0.8.6",
       "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
-      "vectorType": "halfvec"
+      "vectorType": "fp16"
     },
     "systems": [
       {
@@ -365,6 +365,85 @@ export const BENCHMARKS: BenchmarkSet[] = [
         ]
       },
       {
+        "key": "faiss-hnsw-fp16",
+        "name": "FAISS HNSW (fp16 storage)",
+        "transport": "in-process",
+        "color": "#777777",
+        "buildSeconds": 52.4,
+        "memoryBytes": 2640853568,
+        "operating": {
+          "ef": 64,
+          "recall": 0.9761,
+          "qps": 1695.0,
+          "p50Ms": 0.548,
+          "p99Ms": 1.043
+        },
+        "concurrentQps": 9600.7,
+        "clientMode": "threads",
+        "filtered": {
+          "50%": {
+            "recall": 0.9647,
+            "p50Ms": 0.654
+          },
+          "10%": {
+            "recall": 0.8723,
+            "p50Ms": 0.613
+          },
+          "1%": {
+            "recall": 0.4547,
+            "p50Ms": 0.573
+          },
+          "0.1%": {
+            "recall": 0.1143,
+            "p50Ms": 0.524
+          }
+        },
+        "sweep": [
+          {
+            "ef": 16,
+            "recall": 0.8528,
+            "qps": 4019.3,
+            "p50Ms": 0.228,
+            "p99Ms": 0.619
+          },
+          {
+            "ef": 32,
+            "recall": 0.9345,
+            "qps": 2888.8,
+            "p50Ms": 0.325,
+            "p99Ms": 0.647
+          },
+          {
+            "ef": 64,
+            "recall": 0.9761,
+            "qps": 1695.0,
+            "p50Ms": 0.548,
+            "p99Ms": 1.043
+          },
+          {
+            "ef": 128,
+            "recall": 0.993,
+            "qps": 1305.4,
+            "p50Ms": 0.752,
+            "p99Ms": 1.129
+          },
+          {
+            "ef": 256,
+            "recall": 0.998,
+            "qps": 713.8,
+            "p50Ms": 1.381,
+            "p99Ms": 2.067
+          },
+          {
+            "ef": 512,
+            "recall": 0.9996,
+            "qps": 376.4,
+            "p50Ms": 2.623,
+            "p99Ms": 3.759
+          }
+        ]
+      },
+      {
         "key": "qdrant-docker",
         "name": "Qdrant (Docker)",
         "transport": "grpc",
@@ -570,14 +649,14 @@ export const BENCHMARKS: BenchmarkSet[] = [
     "clients": 16,
     "machine": "Apple M5 Pro \u00b7 15 cores \u00b7 24 GB RAM",
     "dockerVm": "15 CPUs \u00b7 7.7 GB",
-    "finishedAt": "2026-09-15T07:54:15+00:00",
+    "finishedAt": "2026-09-15T08:33:23+00:00",
     "versions": {
       "faiss": "1.15.0",
       "needledb": "0.1.0",
       "qdrant": "1.19.1",
       "pgvector": "0.8.6",
       "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
-      "vectorType": "vector"
+      "vectorType": "fp16"
     },
     "systems": [
       {
@@ -893,6 +972,85 @@ export const BENCHMARKS: BenchmarkSet[] = [
             "qps": 501.1,
             "p50Ms": 2.001,
             "p99Ms": 2.62
+          }
+        ]
+      },
+      {
+        "key": "faiss-hnsw-fp16",
+        "name": "FAISS HNSW (fp16 storage)",
+        "transport": "in-process",
+        "color": "#777777",
+        "buildSeconds": 21.9,
+        "memoryBytes": 1582938688,
+        "operating": {
+          "ef": 64,
+          "recall": 0.9758,
+          "qps": 2943.7,
+          "p50Ms": 0.317,
+          "p99Ms": 0.642
+        },
+        "concurrentQps": 17994.0,
+        "clientMode": "threads",
+        "filtered": {
+          "50%": {
+            "recall": 0.967,
+            "p50Ms": 0.347
+          },
+          "10%": {
+            "recall": 0.8833,
+            "p50Ms": 0.333
+          },
+          "1%": {
+            "recall": 0.4647,
+            "p50Ms": 0.335
+          },
+          "0.1%": {
+            "recall": 0.1073,
+            "p50Ms": 0.325
+          }
+        },
+        "sweep": [
+          {
+            "ef": 16,
+            "recall": 0.8549,
+            "qps": 7727.5,
+            "p50Ms": 0.105,
+            "p99Ms": 0.397
+          },
+          {
+            "ef": 32,
+            "recall": 0.9348,
+            "qps": 4876.7,
+            "p50Ms": 0.185,
+            "p99Ms": 0.441
+          },
+          {
+            "ef": 64,
+            "recall": 0.9758,
+            "qps": 2943.7,
+            "p50Ms": 0.317,
+            "p99Ms": 0.642
+          },
+          {
+            "ef": 128,
+            "recall": 0.9925,
+            "qps": 1483.3,
+            "p50Ms": 0.655,
+            "p99Ms": 1.125
+          },
+          {
+            "ef": 256,
+            "recall": 0.9979,
+            "qps": 1014.7,
+            "p50Ms": 0.966,
+            "p99Ms": 1.572
+          },
+          {
+            "ef": 512,
+            "recall": 0.9995,
+            "qps": 474.2,
+            "p50Ms": 2.02,
+            "p99Ms": 3.929
           }
         ]
       },

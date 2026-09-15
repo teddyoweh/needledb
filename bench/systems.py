@@ -155,6 +155,35 @@ class FaissHNSW(System):
         return [i for i in ids[0].tolist() if i >= 0]
 
 
+class FaissHNSWHalf(FaissHNSW):
+    """The same library and graph, with NeedleDB's fp16 vector storage — so the comparison
+    against NeedleDB is one of engines, not of how each one chose to store a vector."""
+
+    name = "FAISS HNSW (fp16 storage)"
+
+    def load(self, base, labels):
+        import faiss
+
+        flat = self.index
+        flat.add(base)                                       # link the graph on float32, as NeedleDB does
+        storage = faiss.IndexScalarQuantizer(flat.d, faiss.ScalarQuantizer.QT_fp16,
+                                             faiss.METRIC_INNER_PRODUCT)
+        storage.train(base[:1])
+        storage.add(base)
+        half = faiss.IndexHNSWSQ(flat.d, faiss.ScalarQuantizer.QT_fp16, flat.hnsw.nb_neighbors(0) // 2,
+                                 faiss.METRIC_INNER_PRODUCT)
+        half.hnsw = flat.hnsw
+        half.storage = storage
+        half.own_fields = True
+        half.ntotal = storage.ntotal
+        half.is_trained = True
+        self.index = half
+        self.labels, self._bits = labels, {}
+
+    def info(self):
+        return {"faiss": self.faiss.__version__, "vectorType": "fp16"}
+
+
 # ---- NeedleDB -------------------------------------------------------------------------
 
 class NeedleLocal(System):
@@ -465,6 +494,7 @@ def make_worker(spec: tuple[str, dict]) -> Callable[[np.ndarray, int], list[int]
 SYSTEMS: dict[str, Callable[[], System]] = {
     "numpy-exact": NumpyExact,
     "faiss-hnsw": FaissHNSW,
+    "faiss-hnsw-fp16": FaissHNSWHalf,
     "needledb-embedded": NeedleLocal,
     "needledb-server": NeedleHTTP,
     "needledb-docker": lambda: NeedleHTTP(url="http://127.0.0.1:8081", container="needledb-bench-needledb"),

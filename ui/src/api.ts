@@ -99,6 +99,7 @@ export type IndexInfo = {
   dimension: number;
   metric: Metric;
   index_type: IndexType;
+  storage: "fp16" | "float32";
   hnsw: { m: number; ef_construction: number; ef_search: number };
   embed: EmbedConfig | null;
   created_at: string;
